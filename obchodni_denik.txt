@@ -39,3 +39,8 @@ SOL-USD: ČEKAT (Jistota: 47.5%, Cena: 123.89 USD)
 BTC-USD: ČEKAT (Jistota: 46.6%, Cena: 88352.73 USD)
 ETH-USD: ČEKAT (Jistota: 42.6%, Cena: 2967.12 USD)
 SOL-USD: ČEKAT (Jistota: 47.9%, Cena: 124.08 USD)
+
+--- Analýza ze dne 2025-12-30 23:15 ---
+BTC-USD: ČEKAT (Jistota: 47.2%, Cena: 88398.79 USD)
+ETH-USD: ČEKAT (Jistota: 42.7%, Cena: 2968.65 USD)
+SOL-USD: ČEKAT (Jistota: 47.7%, Cena: 124.26 USD)
