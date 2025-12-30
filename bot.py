@@ -7,20 +7,8 @@ import requests
 from sklearn.ensemble import RandomForestClassifier
 
 # --- KONFIGURACE (Načtení z GitHub Secrets) ---
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 ASSETS = ['BTC-USD', 'ETH-USD', 'SOL-USD']
 FEE = 0.001
-
-def posli_telegram_zpravu(zprava):
-    if not TOKEN or not CHAT_ID:
-        print("Chyba: Chybí Telegram Token nebo Chat ID v Secrets!")
-        return
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={CHAT_ID}&text={zprava}"
-    try:
-        requests.get(url, timeout=10)
-    except Exception as e:
-        print(f"Chyba při odesílání zprávy: {e}")
 
 def build_and_test(symbol):
     # Stažení dat
@@ -66,22 +54,20 @@ def build_and_test(symbol):
     return signal, pravdepodobnost, aktualni_cena
 
 if __name__ == "__main__":
-    print("Spouštím analýzu...")
-    # TESTOVACÍ ZPRÁVA:
-    posli_telegram_zpravu("🤖 Bot se úspěšně probudil v GitHub Actions a spojení funguje!")
-    for asset in ASSETS:
-        try:
-            signal, prob, cena = build_and_test(asset)
-            print(f"{asset}: {signal} (Jistota: {prob*100:.1f}%)")
-            
-            if signal == "KOUPIT":
-                zprava = (f"🚀 *SIGNÁL K NÁKUPU* 🚀\n\n"
-                         f"Aktivum: {asset}\n"
-                         f"Aktuální cena: {cena:.2f} USD\n"
-                         f"Jistota modelu: {prob*100:.1f}%\n"
-                         f"Čas: {pd.Timestamp.now().strftime('%H:%M')}")
-                posli_telegram_zpravu(zprava)
-        except Exception as e:
-            print(f"Chyba u {asset}: {e}")
+    log_file = "obchodni_denik.txt"
+    cas = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')
+    
+    # Otevřeme soubor pro přidávání (append)
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(f"\n--- Analýza ze dne {cas} ---\n")
+        
+        for asset in ASSETS:
+            try:
+                signal, prob, cena = build_and_test(asset)
+                vystup = f"{asset}: {signal} (Jistota: {prob*100:.1f}%, Cena: {cena:.2f} USD)\n"
+                print(vystup) # Uvidíš v logu GitHubu
+                f.write(vystup)
+            except Exception as e:
+                f.write(f"Chyba u {asset}: {e}\n")
     
     print("Analýza dokončena.")
