@@ -67,6 +67,8 @@ def build_and_test(symbol):
 
 if __name__ == "__main__":
     print("Spouštím analýzu...")
+    # TESTOVACÍ ZPRÁVA:
+    posli_telegram_zpravu("🤖 Bot se úspěšně probudil v GitHub Actions a spojení funguje!")
     for asset in ASSETS:
         try:
             signal, prob, cena = build_and_test(asset)
