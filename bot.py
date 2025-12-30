@@ -80,6 +80,27 @@ plt.show()
 print("\n--- AKTUÁLNÍ SIGNÁLY PRO TUTO HODINU ---")
 print(pd.DataFrame(live_signals))
 
+import requests
+
+def posli_telegram_zpravu(zprava):
+    # Tady doplníš svoje údaje od BotFathera a UserInfoBota
+    token = 'TVUJ_API_TOKEN_TADY'
+    chat_id = 'TVOJE_CHAT_ID_TADY'
+    
+    url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={zprava}"
+    
+    try:
+        requests.get(url)
+        print("Zpráva na Telegram odeslána!")
+    except Exception as e:
+        print(f"Chyba při odesílání na Telegram: {e}")
+
+# Příklad použití v naší tabulce signálů:
+for radek in live_signals:
+    if radek['Signál'] == "KOUPIT":
+        text = f"🚀 SIGNÁL: {radek['Asset']} \nJistota: {radek['Jistota AI']}"
+        posli_telegram_zpravu(text)
+        
 import os
 
 # Načtení tajných údajů z prostředí GitHubu
