@@ -24,20 +24,22 @@ jobs:
 
       - name: Spuštění BTC Sniper v10.2
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          CTRADER_ID: ${{ secrets.CTRADER_ID }}
-          CTRADER_SECRET: ${{ secrets.CTRADER_SECRET }}
-          ACCOUNT_ID: ${{ secrets.ACCOUNT_ID }}
+          # ... (stávající Telegram a CTrader ID nechej)
+          FIX_HOST: ${{ secrets.FIX_HOST }}
+          FIX_PORT: ${{ secrets.FIX_PORT }}
+          FIX_SENDER_ID: ${{ secrets.FIX_SENDER_ID }}
+          FIX_TARGET_ID: ${{ secrets.FIX_TARGET_ID }}
+          FIX_PASSWORD: ${{ secrets.FIX_PASSWORD }}
         run: python BTC_Sniper_v10_2_bot.py
 
       - name: Spuštění ETH Destroyer v6.2
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          CTRADER_ID: ${{ secrets.CTRADER_ID }}
-          CTRADER_SECRET: ${{ secrets.CTRADER_SECRET }}
-          ACCOUNT_ID: ${{ secrets.ACCOUNT_ID }}
+          # ... (stávající Telegram a CTrader ID nechej)
+          FIX_HOST: ${{ secrets.FIX_HOST }}
+          FIX_PORT: ${{ secrets.FIX_PORT }}
+          FIX_SENDER_ID: ${{ secrets.FIX_SENDER_ID }}
+          FIX_TARGET_ID: ${{ secrets.FIX_TARGET_ID }}
+          FIX_PASSWORD: ${{ secrets.FIX_PASSWORD }}
         run: python ETH_Destroyer_v6_2_bot.py
         
       - name: Uložit výsledky do repozitáře
