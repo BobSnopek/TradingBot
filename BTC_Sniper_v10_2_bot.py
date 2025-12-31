@@ -7,6 +7,8 @@ import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 import os
 from ctrader_fix import *
+from twisted.internet.ssl import CertificateOptions
+from twisted.internet import reactor
 
 # Načtení FIX údajů z GitHub Secrets
 def proved_obchod_fix(symbol, side):
