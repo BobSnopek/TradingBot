@@ -1,5 +1,3 @@
-!pip install yfinance pandas_ta scikit-learn seaborn
-
 import yfinance as yf
 import pandas as pd
 import numpy as np
