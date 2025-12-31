@@ -49,6 +49,19 @@ df['ADX'] = adx_df.iloc[:, 0]
 df['DMP'] = adx_df.iloc[:, 1]
 df['DMN'] = adx_df.iloc[:, 2]
 
+# --- LOGOVÁNÍ AKTUÁLNÍHO STAVU ---
+posledni_radek = df.iloc[-1]
+print(f"--- ANALÝZA ETH ({symbol}) ---")
+print(f"Aktuální cena: {posledni_radek['Close']:.2f}")
+print(f"ADX (Síla trendu): {posledni_radek['ADX']:.2f} (potřeba >30 pro trend)")
+print(f"RSI: {posledni_radek['RSI']:.2f}")
+print(f"Signál: {'ŽÁDNÝ' if posledni_radek['Signal'] == 0 else ('BUY' if posledni_radek['Signal'] == 1 else 'SELL')}")
+
+# Skutečné odeslání příkazu, pokud je signál aktivní
+if posledni_radek['Signal'] != 0:
+    smer = "Buy" if posledni_radek['Signal'] == 1 else "Sell"
+    proved_obchod_fix(symbol, smer)
+
 # 3. SIGNÁLY
 df['Signal'] = 0
 # Režim Trend (ADX > 30)
