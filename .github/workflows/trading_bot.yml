@@ -1,37 +1,40 @@
-name: Hourly Trading Bot
-
+name: Agresivní AI Trading (BTC & ETH)
 on:
   schedule:
-    - cron: '0 * * * *'
-  workflow_dispatch:
+    - cron: '*/15 * * * *' # Spustí se každých 15 minut (00, 15, 30, 45)
+  workflow_dispatch: # Umožní ti bota spustit ručně tlačítkem v GitHubu
 
 jobs:
-  run-bot:
+  trade:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # DŮLEŽITÉ: Povolení pro zápis do repozitáře
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout kódu
+        uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Nastavení Pythonu
+        uses: actions/setup-python@v4
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: pip install yfinance pandas pandas_ta scikit-learn requests
+      - name: Instalace knihoven
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run bot
+      - name: Spuštění BTC Sniper v10.2
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python bot.py
+          CTRADER_ID: ${{ secrets.CTRADER_ID }}
+          CTRADER_SECRET: ${{ secrets.CTRADER_SECRET }}
+          ACCOUNT_ID: ${{ secrets.ACCOUNT_ID }}
+        run: python BTC_Sniper_v10_2_bot.py
 
-      - name: Commit and push changes
-        run: |
-          git config --global user.name "TradingBot"
-          git config --global user.email "bot@github.com"
-          git add obchodni_denik.txt
-          git commit -m "Update logu: $(date +'%Y-%m-%d %H:%M')" || echo "Žádné změny k uložení"
-          git push
+      - name: Spuštění ETH Destroyer v6.2
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CTRADER_ID: ${{ secrets.CTRADER_ID }}
+          CTRADER_SECRET: ${{ secrets.CTRADER_SECRET }}
+          ACCOUNT_ID: ${{ secrets.ACCOUNT_ID }}
+        run: python ETH_Destroyer_v6_2_bot.py
