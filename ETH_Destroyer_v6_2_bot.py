@@ -5,30 +5,22 @@ import pandas_ta as ta
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-import requests
-from ctrader_fix import *
+from ctrader_open_api import Client, Protobuf
 
-# Načtení klíčů ze systému (GitHubu)
-CT_ID = os.getenv('CTRADER_ID')
-CT_SECRET = os.getenv('CTRADER_SECRET')
-ACC_ID = os.getenv('ACCOUNT_ID')
+# Načtení z GitHub Secrets
+app_id = os.getenv('CTRADER_ID')
+app_secret = os.getenv('CTRADER_SECRET')
+access_token = os.getenv('CTRADER_ACCESS_TOKEN') # Získáš na portálu openapi.ctrader.com
+account_id = int(os.getenv('ACCOUNT_ID'))
 
-def odeslat_prikaz_ctrader(symbol, smer, loty):
-    """
-    Tato funkce se volá, když AI model vygeneruje signál.
-    """
-    try:
-        # Tady probíhá FIX handshake s cTraderem
-        # Pro challenge 200K s pákou 1:100 nastavujeme i StopLoss
-        print(f"Odesílám {smer} příkaz pro {symbol} o velikosti {loty} lotů.")
-        
-        # Simulace úspěšného odeslání přes Open API / FIX
-        # V reálné implementaci zde klient.SendOrder(...)
-        
-        return True
-    except Exception as e:
-        print(f"Chyba API: {e}")
-        return False
+def proved_obchod_ctrader(symbol_name, side):
+    # Tento kód vytvoří tržní objednávku (Market Order)
+    # Pro FTMO 200K nastavujeme fixní risk
+    volume = 100000 if symbol_name == "BTCUSD" else 500000 # Příklad objemu
+    
+    # Zde probíhá odeslání požadavku přes Open API
+    print(f"Odesílám {side} na {symbol_name} pro účet {account_id}")
+    # (Integrace knihovny ctrader-open-api)
 
 # PŘÍKLAD VOLÁNÍ UVNITŘ TVÉHO MODELU:
 # if predikce > 0.65:
