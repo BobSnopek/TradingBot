@@ -5,6 +5,8 @@ scikit-learn
 requests
 ctrader-fix
 Twisted
+pyopenssl
+service_identity
 ctrader-open-api
 matplotlib
 seaborn
