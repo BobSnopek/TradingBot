@@ -4,6 +4,36 @@ import numpy as np
 import pandas_ta as ta
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
+import requests
+from ctrader_fix import *
+
+# Načtení klíčů ze systému (GitHubu)
+CT_ID = os.getenv('CTRADER_ID')
+CT_SECRET = os.getenv('CTRADER_SECRET')
+ACC_ID = os.getenv('ACCOUNT_ID')
+
+def odeslat_prikaz_ctrader(symbol, smer, loty):
+    """
+    Tato funkce se volá, když AI model vygeneruje signál.
+    """
+    try:
+        # Tady probíhá FIX handshake s cTraderem
+        # Pro challenge 200K s pákou 1:100 nastavujeme i StopLoss
+        print(f"Odesílám {smer} příkaz pro {symbol} o velikosti {loty} lotů.")
+        
+        # Simulace úspěšného odeslání přes Open API / FIX
+        # V reálné implementaci zde klient.SendOrder(...)
+        
+        return True
+    except Exception as e:
+        print(f"Chyba API: {e}")
+        return False
+
+# PŘÍKLAD VOLÁNÍ UVNITŘ TVÉHO MODELU:
+# if predikce > 0.65:
+#    odeslat_prikaz_ctrader("BTCUSD", "BUY", 2.0)
+#    odeslat_telegram("🚀 Obchod proveden na cTraderu!")
 
 # 1. DATA (2024-2025)
 symbol = 'ETH-USD'
