@@ -33,14 +33,16 @@ def proved_obchod_fix(symbol, side):
 #    odeslat_prikaz_ctrader("BTCUSD", "BUY", 2.0)
 #    odeslat_telegram("🚀 Obchod proveden na cTraderu!")
 
-# 1. DATA (2024-2025)
+# ... (začátek kódu s importy a funkcí proved_obchod_fix zůstává stejný)
+
+# 1. DATA
 symbol = 'ETH-USD'
 df = yf.download(symbol, period='720d', interval='1h', auto_adjust=True)
 if isinstance(df.columns, pd.MultiIndex):
     df.columns = df.columns.get_level_values(0)
 df.dropna(inplace=True)
 
-# 2. IDENTICKÉ INDIKÁTORY JAKO v6.1
+# 2. INDIKÁTORY
 df['EMA_FAST'] = ta.ema(df['Close'], length=12)
 df['EMA_SLOW'] = ta.ema(df['Close'], length=26)
 df['RSI'] = ta.rsi(df['Close'], length=14)
@@ -49,20 +51,7 @@ df['ADX'] = adx_df.iloc[:, 0]
 df['DMP'] = adx_df.iloc[:, 1]
 df['DMN'] = adx_df.iloc[:, 2]
 
-# --- LOGOVÁNÍ AKTUÁLNÍHO STAVU ---
-posledni_radek = df.iloc[-1]
-print(f"--- ANALÝZA ETH ({symbol}) ---")
-print(f"Aktuální cena: {posledni_radek['Close']:.2f}")
-print(f"ADX (Síla trendu): {posledni_radek['ADX']:.2f} (potřeba >30 pro trend)")
-print(f"RSI: {posledni_radek['RSI']:.2f}")
-print(f"Signál: {'ŽÁDNÝ' if posledni_radek['Signal'] == 0 else ('BUY' if posledni_radek['Signal'] == 1 else 'SELL')}")
-
-# Skutečné odeslání příkazu, pokud je signál aktivní
-if posledni_radek['Signal'] != 0:
-    smer = "Buy" if posledni_radek['Signal'] == 1 else "Sell"
-    proved_obchod_fix(symbol, smer)
-
-# 3. SIGNÁLY
+# 3. SIGNÁLY (Tato část musí být PŘED logováním)
 df['Signal'] = 0
 # Režim Trend (ADX > 30)
 df.loc[(df['ADX'] > 30) & (df['DMP'] > df['DMN']) & (df['EMA_FAST'] > df['EMA_SLOW']), 'Signal'] = 1
@@ -70,6 +59,19 @@ df.loc[(df['ADX'] > 30) & (df['DMN'] > df['DMP']) & (df['EMA_FAST'] < df['EMA_SL
 # Režim Contrarian (ADX <= 30)
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] > df['EMA_SLOW']) & (df['RSI'] > 58), 'Signal'] = -1
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] < df['EMA_SLOW']) & (df['RSI'] < 42), 'Signal'] = 1
+
+# --- LOGOVÁNÍ A REÁLNÉ ODESLÁNÍ ---
+posledni_radek = df.iloc[-1]
+print(f"--- ANALÝZA ETH ({symbol}) ---")
+print(f"Aktuální cena: {posledni_radek['Close']:.2f}")
+print(f"ADX: {posledni_radek['ADX']:.2f} | RSI: {posledni_radek['RSI']:.2f}")
+
+if posledni_radek['Signal'] != 0:
+    smer = "Buy" if posledni_radek['Signal'] == 1 else "Sell"
+    print(f"!!! NALEZEN SIGNÁL: {smer} !!!")
+    proved_obchod_fix(symbol, smer)
+else:
+    print("Aktuálně žádný signál k obchodu.")
 
 # 4. SIMULACE S TRAILING STOP-LOSSEM
 def run_smoother_eth(data, leverage=3, risk_pct=0.20):
