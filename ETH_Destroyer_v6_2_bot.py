@@ -18,7 +18,7 @@ def proved_obchod_fix(symbol, side):
     
     # Výpočet velikosti pro 200K účet (agresivní 1:100)
     # 1.0 lot BTC je cca 1 BTC. Při ceně 90k je marže cca 900 USD při 1:100.
-    volume = 2.0 if symbol == "BTCUSD" else 15.0 
+    volume = 2.0 if symbol == "ETHUSD" else 15.0 
 
     print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
     
