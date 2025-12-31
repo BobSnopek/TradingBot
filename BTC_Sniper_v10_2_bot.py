@@ -74,7 +74,7 @@ df['Prob_S'] = model_s.predict_proba(df[features])[:, 1]
 df['Signal'] = 0
 df.loc[df['Prob_L'] > 0.51, 'Signal'] = 1
 df.loc[df['Prob_S'] > 0.51, 'Signal'] = -1
-
+print(f"Aktuální AI analýza: Long {df['Prob_L'].iloc[-1]*100:.1f}%, Short {df['Prob_S'].iloc[-1]*100:.1f}%")
 # 5. SIMULACE S LOGOVÁNÍM DO SOUBORU
 def run_logged_sim(data, leverage=5, risk_pct=0.25):
     balance = 1000.0
