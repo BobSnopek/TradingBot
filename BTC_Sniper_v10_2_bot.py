@@ -26,8 +26,8 @@ def proved_obchod_fix(symbol, side):
     print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
     
     # Zde proběhne odeslání FIX zprávy typu 'NewOrderSingle'
-    # client = FixClient(host, port, sender_id, target_id, password)
-    # client.send_order(symbol, side, volume)
+    client = FixClient(host, port, sender_id, target_id, password)
+    client.send_order(symbol, side, volume)
     
     return True
 
