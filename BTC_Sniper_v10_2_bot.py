@@ -10,6 +10,7 @@ from ctrader_fix import *
 
 # Načtení FIX údajů z GitHub Secrets
 def proved_obchod_fix(symbol, side):
+    symbol = symbol.replace("-", "")
     # FIX parametry
     host = os.getenv('FIX_HOST')
     port = int(os.getenv('FIX_PORT'))
