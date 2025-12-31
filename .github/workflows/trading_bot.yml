@@ -39,3 +39,11 @@ jobs:
           CTRADER_SECRET: ${{ secrets.CTRADER_SECRET }}
           ACCOUNT_ID: ${{ secrets.ACCOUNT_ID }}
         run: python ETH_Destroyer_v6_2_bot.py
+        
+      - name: Uložit výsledky do repozitáře
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add vypis_obchodu.txt obchodni_denik.txt
+          git commit -m "Aktualizace deníku obchodů [skip ci]" || echo "Žádné změny k uložení"
+          git push
