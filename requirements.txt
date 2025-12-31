@@ -5,3 +5,4 @@ scikit-learn
 requests
 ctrader-fix
 Twisted
+ctrader-open-api
