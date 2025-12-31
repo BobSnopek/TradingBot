@@ -6,3 +6,5 @@ requests
 ctrader-fix
 Twisted
 ctrader-open-api
+matplotlib
+seaborn
