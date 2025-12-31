@@ -36,7 +36,7 @@ def proved_obchod_fix(symbol, side):
 
 # 1. DATA - Rok 2025
 symbol = 'BTC-USD'
-df_raw = yf.download(symbol, start="2025-01-01", end="2025-12-31", interval='1h', auto_adjust=True)
+df_raw = yf.download(symbol, period='720d', interval='1h', auto_adjust=True)
 if isinstance(df_raw.columns, pd.MultiIndex):
     df_raw.columns = df_raw.columns.get_level_values(0)
 df = df_raw.copy()
