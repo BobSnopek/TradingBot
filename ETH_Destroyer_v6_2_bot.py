@@ -5,23 +5,28 @@ import pandas_ta as ta
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-from ctrader_open_api import Client, Protobuf
+from ctrader_fix import *
 
-# Načtení z GitHub Secrets
-app_id = os.getenv('CTRADER_ID')
-app_secret = os.getenv('CTRADER_SECRET')
-access_token = os.getenv('CTRADER_ACCESS_TOKEN') # Získáš na portálu openapi.ctrader.com
-account_id = int(os.getenv('ACCOUNT_ID'))
-
-def proved_obchod_ctrader(symbol_name, side):
-    # Tento kód vytvoří tržní objednávku (Market Order)
-    # Pro FTMO 200K nastavujeme fixní risk
-    volume = 100000 if symbol_name == "BTCUSD" else 500000 # Příklad objemu
+# Načtení FIX údajů z GitHub Secrets
+def proved_obchod_fix(symbol, side):
+    # FIX parametry
+    host = os.getenv('FIX_HOST')
+    port = int(os.getenv('FIX_PORT'))
+    sender_id = os.getenv('FIX_SENDER_ID')
+    target_id = os.getenv('FIX_TARGET_ID')
+    password = os.getenv('FIX_PASSWORD')
     
-    # Zde probíhá odeslání požadavku přes Open API
-    print(f"Odesílám {side} na {symbol_name} pro účet {account_id}")
-    # (Integrace knihovny ctrader-open-api)
+    # Výpočet velikosti pro 200K účet (agresivní 1:100)
+    # 1.0 lot BTC je cca 1 BTC. Při ceně 90k je marže cca 900 USD při 1:100.
+    volume = 2.0 if symbol == "BTCUSD" else 15.0 
 
+    print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
+    
+    # Zde proběhne odeslání FIX zprávy typu 'NewOrderSingle'
+    # client = FixClient(host, port, sender_id, target_id, password)
+    # client.send_order(symbol, side, volume)
+    
+    return True
 # PŘÍKLAD VOLÁNÍ UVNITŘ TVÉHO MODELU:
 # if predikce > 0.65:
 #    odeslat_prikaz_ctrader("BTCUSD", "BUY", 2.0)
