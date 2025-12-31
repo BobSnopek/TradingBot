@@ -46,6 +46,7 @@ jobs:
         run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
-          git add vypis_obchodu.txt obchodni_denik.txt
+          # Přidáme parametr -f (force) nebo budeme ignorovat chybu chybějícího souboru
+          git add vypis_obchodu.txt || echo "vypis_obchodu.txt nenalezen"
           git commit -m "Aktualizace deníku obchodů [skip ci]" || echo "Žádné změny k uložení"
           git push
