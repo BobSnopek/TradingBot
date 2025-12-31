@@ -110,15 +110,21 @@ def run_logged_sim(data, leverage=5, risk_pct=0.25):
 
 df['Equity'], df['Net_Return'] = run_logged_sim(df)
 
-# 6. ZOBRAZENÍ VÝSLEDKŮ
+# 6. REÁLNÉ ODESLÁNÍ PŘÍKAZU (Tato část chyběla)
+posledni_radek = df.iloc[-1]
+signal_dnes = posledni_radek['Signal']
+
+print(f"--- KONTROLA SIGNÁLU PRO CTRADER ---")
+if signal_dnes != 0:
+    smer = "Buy" if signal_dnes == 1 else "Sell"
+    print(f"!!! NALEZEN AKTUÁLNÍ SIGNÁL: {smer} !!!")
+    proved_obchod_fix(symbol, smer)
+else:
+    print("Aktuálně žádný signál k reálnému obchodu.")
+
+# 7. ZOBRAZENÍ VÝSLEDKŮ (Pro logy v GitHubu)
 df['Month'] = df.index.month
 monthly = df.groupby(df.index.month)['Net_Return'].apply(lambda x: (1 + x).prod() - 1) * 100
 
-plt.figure(figsize=(10, 6))
-sns.barplot(x=monthly.index, y=monthly.values, hue=monthly.index, palette="RdYlGn", legend=False)
-plt.axhline(0, color='white', linewidth=1)
-plt.title("Sniper v10.2: Finální analýza 2025")
-plt.show()
-
 print(f"HOTOVO! Soubor 'vypis_obchodu.txt' byl vytvořen.")
-print(f"Konečný zůstatek: {df['Equity'].iloc[-1]:.2f} USD")
+print(f"Konečný zůstatek simulace: {df['Equity'].iloc[-1]:.2f} USD")
