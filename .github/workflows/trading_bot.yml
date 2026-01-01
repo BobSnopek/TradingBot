@@ -1,4 +1,5 @@
 name: Agresivní AI Trading (BTC & ETH)
+
 on:
   schedule:
     - cron: '0 * * * *' # Spustí se v každou celou hodinu
@@ -7,6 +8,9 @@ on:
 jobs:
   trade:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Nutné pro zápis logů zpět do repozitáře
+    
     steps:
       - name: Checkout kódu
         uses: actions/checkout@v3
@@ -15,12 +19,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
+          cache: 'pip' # ZAPNUTÍ CACHE: Zrychlí instalaci knihoven o desítky sekund
 
       - name: Instalace knihoven
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install matplotlib seaborn  # Přidáme je i explicitně pro jistotu
 
       - name: Spuštění BTC Sniper v10.2
         env:
@@ -44,7 +48,8 @@ jobs:
         run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
-          # Přidáme parametr -f (force) nebo budeme ignorovat chybu chybějícího souboru
-          git add vypis_obchodu.txt || echo "vypis_obchodu.txt nenalezen"
-          git commit -m "Aktualizace deníku obchodů [skip ci]" || echo "Žádné změny k uložení"
+          # Přidáme všechny soubory s výsledky a deníky aktivit
+          git add vypis_obchodu.txt BTC_bot_activity.txt ETH_bot_activity.txt || echo "Některé logy nenalezeny"
+          git commit -m "Aktualizace deníku a aktivity botů [skip ci]" || echo "Žádné změny k uložení"
           git push
+          
