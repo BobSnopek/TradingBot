@@ -6,14 +6,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 import os
-from datetime import datetime
+import datetime  # Opravený import
 from ctrader_fix import *
 from twisted.internet.ssl import CertificateOptions
 from twisted.internet import reactor
 
 # Funkce pro logování veškeré aktivity
 def loguj_aktivitu(zprava):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Volání datetime.datetime.now() je nejbezpečnější cesta proti chybám
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open('BTC_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
@@ -98,5 +99,3 @@ if signal_dnes != 0:
 else:
     loguj_aktivitu(f"{status_rozbor} -> NEČINNOST: Signál pod hranicí 51%")
     print("Aktuálně žádný signál k reálnému obchodu.")
-
-# (Simulace a heatmapa zůstávají beze změny pod tímto bodem...)
