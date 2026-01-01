@@ -21,22 +21,22 @@ def proved_obchod_fix(symbol, side):
     password = os.getenv('FIX_PASSWORD')
     
     # Výpočet velikosti pro 200K účet (agresivní 1:100)
-    # 1.0 lot BTC je cca 1 BTC. Při ceně 90k je marže cca 900 USD při 1:100.
     volume = 2.0 if symbol == "BTCUSD" else 15.0 
 
     print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
     
-    # Zde proběhne odeslání FIX zprávy typu 'NewOrderSingle'
-# Změna z FixClient na Client
-    client = Client(host, port, sender_id, target_id, password)
-    client.send_order(symbol, side, volume)
+    try:
+        client = Client(host, port, sender_id, target_id, password)
+        # OPRAVA: Použití správné metody sendOrder místo send_order
+        client.sendOrder(symbol, side, volume)
+        print("Příkaz byl úspěšně předán protokolu.")
+    except AttributeError:
+        # Záložní metoda pro různé verze knihovny
+        print("Zkouším záložní metodu odeslání (send_new_order_single)...")
+        client = Client(host, port, sender_id, target_id, password)
+        client.send_new_order_single(symbol, side, volume)
     
     return True
-
-# PŘÍKLAD VOLÁNÍ UVNITŘ TVÉHO MODELU:
-# if predikce > 0.65:
-#    odeslat_prikaz_ctrader("BTCUSD", "BUY", 2.0)
-#    odeslat_telegram("🚀 Obchod proveden na cTraderu!")
 
 # 1. DATA - Rok 2025
 symbol = 'BTC-USD'
@@ -45,7 +45,7 @@ if isinstance(df_raw.columns, pd.MultiIndex):
     df_raw.columns = df_raw.columns.get_level_values(0)
 df = df_raw.copy()
 
-# 2. INDIKÁTORY (Univerzální metoda)
+# 2. INDIKÁTORY
 df['RSI'] = ta.rsi(df['Close'], length=7)
 stoch = ta.stochrsi(df['Close'], length=10)
 stoch_k_col = [c for c in stoch.columns if 'k' in c.lower()][0]
@@ -77,7 +77,10 @@ df['Prob_S'] = model_s.predict_proba(df[features])[:, 1]
 df['Signal'] = 0
 df.loc[df['Prob_L'] > 0.51, 'Signal'] = 1
 df.loc[df['Prob_S'] > 0.51, 'Signal'] = -1
+
+print(f"--- ANALÝZA BTC ({symbol}) ---")
 print(f"Aktuální AI analýza: Long {df['Prob_L'].iloc[-1]*100:.1f}%, Short {df['Prob_S'].iloc[-1]*100:.1f}%")
+
 # 5. SIMULACE S LOGOVÁNÍM DO SOUBORU
 def run_logged_sim(data, leverage=5, risk_pct=0.25):
     balance = 1000.0
@@ -94,10 +97,9 @@ def run_logged_sim(data, leverage=5, risk_pct=0.25):
                 entry = data['Close'].iloc[i]
                 exit_p = data['Close'].iloc[i+2]
                 
-                # Výpočet procentuálního výsledku (Long vs Short)
                 res = (exit_p - entry) / entry * leverage if sig == 1 else (entry - exit_p) / entry * leverage
-                res -= 0.0012 # Poplatky
-                res = max(res, -0.03) # Stop-loss pojistka
+                res -= 0.0012 
+                res = max(res, -0.03) 
                 
                 pnl_usd = (balance * risk_pct) * res
                 balance += pnl_usd
@@ -113,7 +115,7 @@ def run_logged_sim(data, leverage=5, risk_pct=0.25):
 
 df['Equity'], df['Net_Return'] = run_logged_sim(df)
 
-# 6. REÁLNÉ ODESLÁNÍ PŘÍKAZU (Tato část chyběla)
+# 6. REÁLNÉ ODESLÁNÍ PŘÍKAZU
 posledni_radek = df.iloc[-1]
 signal_dnes = posledni_radek['Signal']
 
@@ -125,9 +127,6 @@ if signal_dnes != 0:
 else:
     print("Aktuálně žádný signál k reálnému obchodu.")
 
-# 7. ZOBRAZENÍ VÝSLEDKŮ (Pro logy v GitHubu)
-df['Month'] = df.index.month
-monthly = df.groupby(df.index.month)['Net_Return'].apply(lambda x: (1 + x).prod() - 1) * 100
-
+# 7. ZOBRAZENÍ VÝSLEDKŮ
 print(f"HOTOVO! Soubor 'vypis_obchodu.txt' byl vytvořen.")
 print(f"Konečný zůstatek simulace: {df['Equity'].iloc[-1]:.2f} USD")
