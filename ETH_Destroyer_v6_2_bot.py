@@ -20,23 +20,22 @@ def proved_obchod_fix(symbol, side):
     password = os.getenv('FIX_PASSWORD')
     
     # Výpočet velikosti pro 200K účet (agresivní 1:100)
-    # 1.0 lot BTC je cca 1 BTC. Při ceně 90k je marže cca 900 USD při 1:100.
     volume = 15.0 if symbol == "ETHUSD" else 2.0 
 
     print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
     
-    # Zde proběhne odeslání FIX zprávy typu 'NewOrderSingle'
-# Změna z FixClient na Client
-    client = Client(host, port, sender_id, target_id, password)
-    client.send_order(symbol, side, volume)
+    try:
+        client = Client(host, port, sender_id, target_id, password)
+        # OPRAVA: Použití správné metody sendOrder
+        client.sendOrder(symbol, side, volume)
+        print("Příkaz byl úspěšně předán protokolu.")
+    except AttributeError:
+        # Záložní metoda, pokud by knihovna vyžadovala jiný formát
+        print("Zkouším záložní metodu odeslání...")
+        client = Client(host, port, sender_id, target_id, password)
+        client.send_new_order_single(symbol, side, volume)
     
     return True
-# PŘÍKLAD VOLÁNÍ UVNITŘ TVÉHO MODELU:
-# if predikce > 0.65:
-#    odeslat_prikaz_ctrader("BTCUSD", "BUY", 2.0)
-#    odeslat_telegram("🚀 Obchod proveden na cTraderu!")
-
-# ... (začátek kódu s importy a funkcí proved_obchod_fix zůstává stejný)
 
 # 1. DATA
 symbol = 'ETH-USD'
@@ -54,7 +53,7 @@ df['ADX'] = adx_df.iloc[:, 0]
 df['DMP'] = adx_df.iloc[:, 1]
 df['DMN'] = adx_df.iloc[:, 2]
 
-# 3. SIGNÁLY (Tato část musí být PŘED logováním)
+# 3. SIGNÁLY
 df['Signal'] = 0
 # Režim Trend (ADX > 30)
 df.loc[(df['ADX'] > 30) & (df['DMP'] > df['DMN']) & (df['EMA_FAST'] > df['EMA_SLOW']), 'Signal'] = 1
@@ -87,14 +86,11 @@ def run_smoother_eth(data, leverage=3, risk_pct=0.20):
         
         if sig != 0 and sig != prev_sig:
             entry = data['Close'].iloc[i]
-            # Sledujeme vývoj ceny během 2 hodin
             window = data.iloc[i:i+3]
             
-            # Simulace trailingu: Pokud cena v okně dosáhla zisku, ale pak spadla
             if sig == 1: # LONG
                 peak = window['High'].max()
                 final = window['Close'].iloc[-1]
-                # Pokud zisk dosáhl aspoň 1.2% (před pákou), ale pak klesl, bereme aspoň něco
                 if (peak - entry) / entry > 0.012:
                     res = max(0.005, (final - entry) / entry)
                 else:
@@ -108,8 +104,7 @@ def run_smoother_eth(data, leverage=3, risk_pct=0.20):
                     res = (entry - final) / entry
             
             res = (res * leverage) - 0.0012
-            res = max(res, -0.035) # Fixní SL pojistka zůstává
-            
+            res = max(res, -0.035) 
             balance += (balance * risk_pct) * res
         equity.append(balance)
     
