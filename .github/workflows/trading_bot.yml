@@ -2,7 +2,7 @@ name: Agresivní AI Trading (BTC & ETH)
 on:
   schedule:
     - cron: '0 * * * *' # Spustí se v každou celou hodinu
-  workflow_dispatch: # Umožní ti bota spustit ručně tlačítkem v GitHubu
+  workflow_dispatch: # Umožní bota spustit ručně tlačítkem v GitHubu
 
 jobs:
   trade:
@@ -24,7 +24,6 @@ jobs:
 
       - name: Spuštění BTC Sniper v10.2
         env:
-          # ... (stávající Telegram a CTrader ID nechej)
           FIX_HOST: ${{ secrets.FIX_HOST }}
           FIX_PORT: ${{ secrets.FIX_PORT }}
           FIX_SENDER_ID: ${{ secrets.FIX_SENDER_ID }}
@@ -34,7 +33,6 @@ jobs:
 
       - name: Spuštění ETH Destroyer v6.2
         env:
-          # ... (stávající Telegram a CTrader ID nechej)
           FIX_HOST: ${{ secrets.FIX_HOST }}
           FIX_PORT: ${{ secrets.FIX_PORT }}
           FIX_SENDER_ID: ${{ secrets.FIX_SENDER_ID }}
