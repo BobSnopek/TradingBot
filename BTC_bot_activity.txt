@@ -1,1 +1,2 @@
 
+[2026-01-01 21:32:35] Analýza ceny 88267.64 | AI Predikce: Long 25.5%, Short 36.2% -> NEČINNOST: Signál pod hranicí 51%
