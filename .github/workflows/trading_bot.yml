@@ -2,14 +2,14 @@ name: Agresivní AI Trading (BTC & ETH)
 
 on:
   schedule:
-    - cron: '0 * * * *' # Spustí se v každou celou hodinu
-  workflow_dispatch: # Umožní bota spustit ručně tlačítkem v GitHubu
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   trade:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Nutné pro zápis logů zpět do repozitáře
+      contents: write
     
     steps:
       - name: Checkout kódu
@@ -19,7 +19,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
-          cache: 'pip' # ZAPNUTÍ CACHE: Zrychlí instalaci knihoven o desítky sekund
+          cache: 'pip' # Toto srazí těch 49s instalace na minimum
 
       - name: Instalace knihoven
         run: |
@@ -27,6 +27,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Spuštění BTC Sniper v10.2
+        continue-on-error: true # Důležité: Pád jednoho nezastaví druhého
         env:
           FIX_HOST: ${{ secrets.FIX_HOST }}
           FIX_PORT: ${{ secrets.FIX_PORT }}
@@ -36,20 +37,21 @@ jobs:
         run: python BTC_Sniper_v10_2_bot.py
 
       - name: Spuštění ETH Destroyer v6.2
+        continue-on-error: true
         env:
           FIX_HOST: ${{ secrets.FIX_HOST }}
           FIX_PORT: ${{ secrets.FIX_PORT }}
           FIX_SENDER_ID: ${{ secrets.FIX_SENDER_ID }}
           FIX_TARGET_ID: ${{ secrets.FIX_TARGET_ID }}
           FIX_PASSWORD: ${{ secrets.FIX_PASSWORD }}
-        run: python ETH_Destroyer_v6_2_bot.py
+        run: python ETH_Destroyer_v6_2_bot.py # ZKONTROLUJ, ZDA TENTO ŘÁDEK MÁŠ
         
       - name: Uložit výsledky do repozitáře
+        if: always() # Uloží logy, i když bot spadne
         run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
-          # Přidáme všechny soubory s výsledky a deníky aktivit
-          git add vypis_obchodu.txt BTC_bot_activity.txt ETH_bot_activity.txt || echo "Některé logy nenalezeny"
-          git commit -m "Aktualizace deníku a aktivity botů [skip ci]" || echo "Žádné změny k uložení"
+          git add vypis_obchodu.txt BTC_bot_activity.txt ETH_bot_activity.txt || echo "Žádné soubory"
+          git commit -m "Aktualizace deníků [skip ci]" || echo "Beze změn"
           git push
           
