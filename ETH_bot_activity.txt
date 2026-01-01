@@ -1,3 +1,5 @@
 
 [2026-01-01 21:41:51] Analýza ceny 2985.28 | ADX: 22.28, RSI: 54.70 -> NEČINNOST: Žádná technická shoda
 [2026-01-01 22:21:00] Analýza ceny 2988.06 | ADX: 23.75, RSI: 56.86 -> NEČINNOST: Žádná technická shoda
+[2026-01-01 23:20:51] Analýza ceny 2997.55 | ADX: 26.33, RSI: 63.06 -> AKCE: SELL
+[2026-01-01 23:20:51] CHYBA: FIX příkaz SELL selhal. Důvod: 'Client' object has no attribute 'sendOrder'
