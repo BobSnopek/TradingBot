@@ -9,23 +9,21 @@ import ssl
 import socket
 
 # --- KONFIGURACE ---
-TRAIL_PCT = 0.012   # 1.2% Trailing Stop-Loss
-MAX_HOLD = 12       # Max doba držení 12h
-RISK_PCT = 0.20     # 20% risk
-LEVERAGE = 3        # Páka 3x
+TRAIL_PCT = 0.012
+MAX_HOLD = 12
+RISK_PCT = 0.20
+LEVERAGE = 3
 
 def loguj_aktivitu_eth(zprava):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- GENERÁTOR FIX ZPRÁV ---
 def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
     body = ""
     for tag, val in tags_dict.items():
         body += f"{tag}={val}{s}"
-    
     temp_head = f"35={msg_type}{s}{body}"
     length = len(temp_head)
     msg_str = f"8=FIX.4.4{s}9={length}{s}{temp_head}"
@@ -33,71 +31,58 @@ def create_fix_msg(msg_type, tags_dict):
     msg_final = f"{msg_str}10={checksum:03d}{s}"
     return msg_final.encode('ascii')
 
-# --- SYNCHRONNÍ ODESLÁNÍ PŘES SSL ---
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
-    host = os.getenv('FIX_HOST', 'live-uk-eqx-01.p.c-trader.com')
-    port = int(os.getenv('FIX_PORT', 5212))
     
-    # ZDE JE KLÍČ: Načteme celé ID
-    sender_id_full = os.getenv('FIX_SENDER_ID') # "live.ftmo.17032147"
-    target_id = os.getenv('FIX_TARGET_ID')      # "cServer"
-    password = os.getenv('FIX_PASSWORD')
+    # --- HARDCODED ÚDAJE (PŘÍMO ZDE) ---
+    host = "live-uk-eqx-01.p.c-trader.com"
+    port = 5212
+    sender_comp_id = "live.ftmo.17032147"  # Dlouhé ID pro spojení
+    username_int = "17032147"            # Krátké ID pro přihlášení
+    target_comp_id = "cServer"
+    # !!! ZDE VYPLŇ SVÉ HESLO MÍSTO TOHO TEXTU V UVOZOVKÁCH !!!
+    password = "TraderHeslo@2026" 
     
-    # A vyrobíme z něj číselnou verzi pro Username
-    try:
-        username_int = "".join(filter(str.isdigit, sender_id_full)) # "17032147"
-    except:
-        username_int = "0"
-
     volume = 15
     if "BTC" in symbol_clean: volume = 2
     
-    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
-    print(f"DEBUG: SenderCompID='{sender_id_full}', Username='{username_int}'")
+    print(f"--- PŘÍMÝ FIX SOCKET (Hardcoded): Odesílám {side} {symbol_clean} ---")
     
     try:
         context = ssl.create_default_context()
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
         
-        # 2. LOGON (MsgType=A)
+        # LOGON
         logon_tags = {
-            49: sender_id_full, # Tag 49: CELÉ ID (live.ftmo...)
-            56: target_id,
-            57: "TRADE",        # TargetSubID: Musí být TRADE
-            50: "QUOTE",        # SenderSubID: Často vyžadováno jako párové k 57
+            49: sender_comp_id, # Tag 49 = Dlouhé ID
+            56: target_comp_id,
+            57: "TRADE",
+            50: "QUOTE",
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
             108: "30",
-            553: username_int,  # Tag 553: JEN ČÍSLO
+            553: username_int,  # Tag 553 = Krátké číslo
             554: password,
             141: "Y"
         }
-        logon_msg = create_fix_msg("A", logon_tags)
-        ssock.sendall(logon_msg)
+        ssock.sendall(create_fix_msg("A", logon_tags))
         
-        # Čekání na Logon
         response = ssock.recv(4096).decode('ascii', errors='ignore')
-        
         if "35=A" in response and "58=" not in response:
-            print("DEBUG: Logon úspěšný! Jdeme obchodovat.")
+            print(f"DEBUG: Logon OK. (ID: {sender_comp_id})")
         else:
-            err_text = "Neznámá chyba"
-            if "58=" in response:
-                err_text = response.split("58=")[1].split("\x01")[0]
-            print(f"VAROVÁNÍ: Logon problém: {err_text}")
-            print(f"RAW: {response}")
+            print(f"VAROVÁNÍ: Logon odpověď: {response}")
 
-        # 3. NEW ORDER SINGLE (MsgType=D)
+        # ORDER
         order_id = f"BOB_{int(time.time())}"
         side_code = "1" if side.lower() == "buy" else "2"
         
         order_tags = {
-            49: sender_id_full, # I zde celé ID
-            56: target_id,
-            57: "TRADE",        # Důležité pro routing
+            49: sender_comp_id,
+            56: target_comp_id,
+            57: "TRADE",
             50: "QUOTE",
             34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
@@ -105,41 +90,29 @@ def proved_obchod_fix(symbol, side):
             55: symbol_clean,
             54: side_code,
             38: str(int(volume)),
-            40: "1",         # Market Order
-            59: "0",         # Day
+            40: "1",
+            59: "0",
             60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         }
         
-        order_msg = create_fix_msg("D", order_tags)
-        ssock.sendall(order_msg)
-        
-        # 4. ČEKÁNÍ NA POTVRZENÍ
+        ssock.sendall(create_fix_msg("D", order_tags))
         time.sleep(2)
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         ssock.close()
         
-        if "35=8" in response_order: 
-            if "39=8" in response_order:
-                err_text = ""
-                if "58=" in response_order:
-                    err_text = response_order.split("58=")[1].split("\x01")[0]
-                msg = f"ZAMÍTNUTO: Server příkaz odmítl. Důvod: {err_text}"
-            else:
-                msg = f"ÚSPĚCH: Obchod potvrzen! (Execution Report přijat)"
+        if "35=8" in response_order and "39=8" not in response_order:
+            msg = f"ÚSPĚCH: Obchod potvrzen! Detail: {response_order}"
             print(msg)
-            print(f"DETAIL: {response_order}")
             loguj_aktivitu_eth(msg)
             return True
         else:
-            msg = f"NEJISTÝ VÝSLEDEK: Odpověď serveru: {response_order}"
+            msg = f"VÝSLEDEK: {response_order}"
             print(msg)
             loguj_aktivitu_eth(msg)
             return True
 
     except Exception as e:
-        msg = f"CHYBA SOCKETU: {str(e)}"
-        print(msg)
-        loguj_aktivitu_eth(msg)
+        print(f"CHYBA: {e}")
         return False
 
 # 1. DATA
@@ -160,14 +133,12 @@ df['DMN'] = adx_df.iloc[:, 2]
 
 # 3. SIGNÁLY
 df['Signal'] = 0
-# Režim Trend (ADX > 30)
 df.loc[(df['ADX'] > 30) & (df['DMP'] > df['DMN']) & (df['EMA_FAST'] > df['EMA_SLOW']), 'Signal'] = 1
 df.loc[(df['ADX'] > 30) & (df['DMN'] > df['DMP']) & (df['EMA_FAST'] < df['EMA_SLOW']), 'Signal'] = -1
-# Režim Contrarian (ADX <= 30)
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] > df['EMA_SLOW']) & (df['RSI'] > 58), 'Signal'] = -1
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] < df['EMA_SLOW']) & (df['RSI'] < 42), 'Signal'] = 1
 
-# 4. SIMULACE HISTORIE
+# 4. SIMULACE
 def run_trailing_sim_eth(data):
     balance = 1000.0
     with open('vypis_obchodu_ETH_TSL.txt', 'w', encoding='utf-8') as f:
@@ -203,26 +174,17 @@ def run_trailing_sim_eth(data):
                 typ = "LONG " if sig == 1 else "SHORT"
                 f.write(f"{data.index[i]} | {typ} | {entry:8.2f} | {entry*(1+res):8.2f} | {pnl_usd:8.2f} | {balance:8.2f}\n")
     return balance
-
 final_bal = run_trailing_sim_eth(df)
 
-# 5. LOGOVÁNÍ
+# 5. EXECUTION
 posledni_radek = df.iloc[-1]
-cena = posledni_radek['Close']
-adx_val = posledni_radek['ADX']
-rsi_val = posledni_radek['RSI']
-
-status_rozbor = f"Analýza ceny {cena:.2f} | ADX: {adx_val:.2f}, RSI: {rsi_val:.2f}"
-print(f"--- {status_rozbor} ---")
-
-# 6. REÁLNÉ ROZHODNUTÍ
 signal_dnes = posledni_radek['Signal']
+print(f"--- Analýza {symbol} ---")
 if signal_dnes != 0:
     smer = "BUY" if signal_dnes == 1 else "SELL"
-    loguj_aktivitu_eth(f"{status_rozbor} -> AKCE: {smer}")
+    loguj_aktivitu_eth(f"AKCE: {smer}")
     proved_obchod_fix(symbol, smer)
 else:
-    loguj_aktivitu_eth(f"{status_rozbor} -> NEČINNOST: Žádná technická shoda")
-    print("Aktuálně žádný signál k obchodu.")
-
-print(f"Simulace hotova. Teoretický zůstatek: {final_bal:.2f} USD")
+    loguj_aktivitu_eth("NEČINNOST")
+    print("Žádný signál.")
+print(f"Simulace hotova.")
