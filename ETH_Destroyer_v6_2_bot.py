@@ -8,9 +8,9 @@ import time
 import ssl
 import socket
 
-# --- KONFIGURACE ---
-TRAIL_PCT = 0.012
-MAX_HOLD = 12
+# --- KONFIGURACE OCHRANY ---
+SL_PCT = 0.015  # Stop Loss 1.5% (Pokud cena klesne o 1.5%, prodáváme)
+TP_PCT = 0.030  # Take Profit 3.0% (Pokud cena stoupne o 3%, vybíráme zisk)
 RISK_PCT = 0.20
 LEVERAGE = 3
 
@@ -21,7 +21,6 @@ def loguj_aktivitu_eth(zprava):
 
 def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
-    # Hlavička (seřazeno podle cTrader specifikace)
     head_tags = ['35', '49', '56', '50', '57', '34', '52']
     head_str = ""
     head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 50, 57, 34, 52]}
@@ -47,8 +46,20 @@ def create_fix_msg(msg_type, tags_dict):
     msg_final = f"{msg_str}10={checksum:03d}{s}"
     return msg_final.encode('ascii')
 
-def proved_obchod_fix(symbol, side):
-    # --- FINÁLNÍ ÚDAJE ---
+def parse_price_from_response(response):
+    """Vytáhne cenu (Tag 6 - AvgPx) z odpovědi serveru."""
+    try:
+        if "6=" in response:
+            parts = response.split("\x01")
+            for p in parts:
+                if p.startswith("6="):
+                    return float(p.split("=")[1])
+    except:
+        return None
+    return None
+
+def proved_obchod_a_zajisti(symbol, side):
+    # --- ÚDAJE ---
     host = "live-uk-eqx-01.p.c-trader.com"
     port = 5212
     sender_comp_id = "live.ftmo.17032147"
@@ -56,14 +67,11 @@ def proved_obchod_fix(symbol, side):
     password = "CTrader2026"
     username = "17032147"
     
-    # !!! ZDE JE TA MAGICKÁ ÚPRAVA !!!
-    # Místo "ETHUSD" posíláme ID "323"
+    # ID instrumentu (ETH = 323)
     fix_symbol_id = "323"
-    
-    # Objem: 15 kontraktů (cca 1.5 lotu, bezpečné pro test)
     volume = 15
     
-    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} pro ID {fix_symbol_id} (ETH) ---")
+    print(f"--- FIX SOCKET: Odesílám {side} pro ID {fix_symbol_id} ---")
     
     try:
         context = ssl.create_default_context()
@@ -72,75 +80,100 @@ def proved_obchod_fix(symbol, side):
         
         # 1. LOGON
         logon_tags = {
-            49: sender_comp_id, 
-            56: target_comp_id,
-            50: "TRADE",
-            57: "TRADE",
-            34: 1,
-            52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
-            98: "0",
-            108: "30",
-            553: username,
-            554: password,
-            141: "Y"
+            49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
+            34: 1, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+            98: "0", 108: "30", 553: username, 554: password, 141: "Y"
         }
         ssock.sendall(create_fix_msg("A", logon_tags))
-        
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         
-        if "35=A" in response and "58=" not in response:
-            print(f"DEBUG: Logon ÚSPĚŠNÝ! Jdeme obchodovat.")
-        else:
-            print(f"VAROVÁNÍ: Logon problém: {response}")
+        if "35=A" not in response:
+            print("CHYBA: Logon selhal.")
+            return False
 
-        # 2. ORDER
+        # 2. MARKET ORDER (Vstup do pozice)
         order_id = f"BOB_{int(time.time())}"
-        side_code = "1" if side.lower() == "buy" else "2"
+        side_code = "1" if side.lower() == "buy" else "2" # 1=Buy, 2=Sell
         
         order_tags = {
-            49: sender_comp_id,
-            56: target_comp_id,
-            50: "TRADE",
-            57: "TRADE",
-            34: 2,
-            52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+            49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
+            34: 2, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             11: order_id,
-            55: fix_symbol_id,   # <--- ZDE POSÍLÁME "323"
+            55: fix_symbol_id,
             54: side_code,
             38: str(int(volume)),
-            40: "1",         # Market Order
-            59: "0",         # Day
+            40: "1",     # Market
+            59: "0",     # Day
             60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         }
         
         ssock.sendall(create_fix_msg("D", order_tags))
-        time.sleep(2)
+        time.sleep(1)
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
-        ssock.close()
         
-        if "35=8" in response_order:
-            if "39=8" not in response_order:
-                msg = f"ÚSPĚCH: Obchod potvrzen! Server přijal ID {fix_symbol_id}."
-                print(msg)
-                print(f"DETAIL: {response_order}")
-                loguj_aktivitu_eth(msg)
-                return True
-            else:
-                err = "Zamítnuto"
-                if "58=" in response_order:
-                    err = response_order.split("58=")[1].split("\x01")[0]
-                msg = f"ZAMÍTNUTO: {err}"
-                print(msg)
-                loguj_aktivitu_eth(msg)
-                return False
-        else:
-            msg = f"VÝSLEDEK NEJASNÝ: {response_order}"
+        # Kontrola úspěchu
+        if "35=8" in response_order and "39=8" not in response_order:
+            entry_price = parse_price_from_response(response_order)
+            msg = f"ÚSPĚCH: Nakoupeno za {entry_price if entry_price else 'Neznámo'}"
             print(msg)
             loguj_aktivitu_eth(msg)
+            
+            # 3. ZAJIŠTĚNÍ (STOP LOSS a TAKE PROFIT)
+            if entry_price:
+                # Výpočet cen
+                if side.lower() == "buy":
+                    sl_price = round(entry_price * (1 - SL_PCT), 2)
+                    tp_price = round(entry_price * (1 + TP_PCT), 2)
+                    sl_side = "2" # Sell Stop
+                    tp_side = "2" # Sell Limit
+                else: # Sell
+                    sl_price = round(entry_price * (1 + SL_PCT), 2)
+                    tp_price = round(entry_price * (1 - TP_PCT), 2)
+                    sl_side = "1" # Buy Stop
+                    tp_side = "1" # Buy Limit
+
+                print(f"--- NASTAVUJI OCHRANU: SL={sl_price}, TP={tp_price} ---")
+                
+                # A) STOP LOSS ORDER (Type 3 = Stop Order)
+                sl_tags = {
+                    49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
+                    34: 3, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+                    11: f"SL_{int(time.time())}",
+                    55: fix_symbol_id,
+                    54: sl_side,       # Opačný směr
+                    38: str(int(volume)),
+                    40: "3",           # STOP ORDER
+                    99: str(sl_price), # Stop Price
+                    59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+                }
+                ssock.sendall(create_fix_msg("D", sl_tags))
+                time.sleep(0.5)
+                
+                # B) TAKE PROFIT ORDER (Type 2 = Limit Order)
+                tp_tags = {
+                    49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
+                    34: 4, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+                    11: f"TP_{int(time.time())}",
+                    55: fix_symbol_id,
+                    54: tp_side,       # Opačný směr
+                    38: str(int(volume)),
+                    40: "2",           # LIMIT ORDER
+                    44: str(tp_price), # Limit Price
+                    59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+                }
+                ssock.sendall(create_fix_msg("D", tp_tags))
+                print("Ochranné příkazy odeslány.")
+                loguj_aktivitu_eth(f"Zajištěno SL: {sl_price}, TP: {tp_price}")
+
             return True
+        else:
+            print(f"CHYBA PŘÍKAZU: {response_order}")
+            return False
+
+        ssock.close()
 
     except Exception as e:
-        print(f"CHYBA: {e}")
+        print(f"CHYBA SOCKETU: {e}")
         return False
 
 # 1. DATA
@@ -211,7 +244,7 @@ print(f"--- Analýza {symbol} ---")
 if signal_dnes != 0:
     smer = "BUY" if signal_dnes == 1 else "SELL"
     loguj_aktivitu_eth(f"AKCE: {smer}")
-    proved_obchod_fix(symbol, smer)
+    proved_obchod_a_zajisti(symbol, smer)
 else:
     loguj_aktivitu_eth("NEČINNOST")
     print("Žádný signál.")
