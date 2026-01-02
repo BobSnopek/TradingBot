@@ -19,7 +19,35 @@ def loguj_aktivitu(zprava):
     with open('BTC_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- OPRAVENÁ FUNKCE: RUČNÍ SESTAVENÍ FIX ZPRÁVY ---
+# --- POMOCNÁ FUNKCE: RUČNÍ VÝROBA FIX ZPRÁVY (MACGYVER STYLE) ---
+def create_fix_message(msg_type, pairs):
+    """
+    Sestaví RAW FIX zprávu bez potřeby externí knihovny.
+    Počítá správně BodyLength (tag 9) a Checksum (tag 10).
+    """
+    s = "\x01" # SOH oddělovač
+    
+    # Sestavení těla zprávy
+    body = ""
+    for tag, value in pairs.items():
+        body += f"{tag}={value}{s}"
+        
+    # Výpočet délky (tag 9)
+    # BodyLength = délka od tagu 35 (včetně) do tagu 10 (nevčetně)
+    temp_body_for_len = f"35={msg_type}{s}{body}"
+    length = len(temp_body_for_len)
+    
+    # Sestavení zprávy před checksumem: 8=...|9=...|35=...|...body...|
+    pre_checksum_msg = f"8=FIX.4.4{s}9={length}{s}{temp_body_for_len}"
+    
+    # Výpočet Checksum (tag 10)
+    checksum = sum(pre_checksum_msg.encode('ascii')) % 256
+    checksum_str = f"{checksum:03d}" 
+    
+    final_msg = f"{pre_checksum_msg}10={checksum_str}{s}"
+    return final_msg.encode('ascii') # Vracíme jako BYTES
+
+# --- OPRAVENÁ FUNKCE PRO FIX API ---
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
     host = os.getenv('FIX_HOST')
@@ -31,52 +59,40 @@ def proved_obchod_fix(symbol, side):
     # 2.0 loty pro BTC na tvém 200k účtu
     volume = 2.0 
 
-    print(f"--- FIX API: Odesílám {side} {symbol_clean} ({volume}) přes raw metodu 'send' ---")
+    print(f"--- FIX API: Odesílám {side} {symbol_clean} ({volume}) přes MANUAL RAW ---")
 
     try:
         client = Client(host, port, sender_id, target_id, password)
         
-        # 1. VYTVOŘENÍ FIX ZPRÁVY (Typ D = New Order Single)
-        try:
-            order = FixMessage() 
-        except NameError:
-            # Fallback, kdyby se třída jmenovala jinak (často jen Message)
-            order = Message()
-            
-        order.setMessageType("D") # D = NewOrderSingle
-        
-        # 2. VYPLNĚNÍ POVINNÝCH POLÍ
-        # Tag 11: ClOrdID (Unikátní ID příkazu - čas)
+        # PŘÍPRAVA DAT
         order_id = f"BOB_BTC_{int(time.time())}"
-        order.setField(11, order_id)
-        
-        # Tag 55: Symbol (BTCUSD)
-        order.setField(55, symbol_clean)
-        
-        # Tag 54: Side (1 = Buy, 2 = Sell)
-        side_code = "1" if side.lower() == "buy" else "2"
-        order.setField(54, side_code)
-        
-        # Tag 38: OrderQty (Množství)
-        order.setField(38, str(volume))
-        
-        # Tag 40: OrdType (1 = Market)
-        order.setField(40, "1")
-        
-        # Tag 60: TransactTime
         transact_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
-        order.setField(60, transact_time)
-
-        # 3. ODESLÁNÍ
-        client.send(order)
+        side_code = "1" if side.lower() == "buy" else "2"
         
-        msg = f"ÚSPĚCH: RAW FIX zpráva (Type D) odeslána. ID: {order_id}, {side} {symbol_clean} {volume}"
+        # Vytvoříme slovník tagů pro NewOrderSingle (D)
+        tags = {
+            11: order_id,       # ClOrdID
+            55: symbol_clean,   # Symbol
+            54: side_code,      # Side
+            38: str(volume),    # OrderQty
+            40: "1",            # OrdType = Market
+            60: transact_time,  # TransactTime
+            59: "0"             # TimeInForce = Day
+        }
+        
+        # ODESLÁNÍ RAW BYTES
+        raw_msg = create_fix_message("D", tags)
+        print(f"DEBUG: Odesílám raw bytes: {raw_msg}")
+        
+        client.send(raw_msg)
+        
+        msg = f"ÚSPĚCH: RAW FIX (bytes) odesláno. ID: {order_id}"
         print(msg)
         loguj_aktivitu(msg)
         return True
 
     except Exception as e:
-        msg = f"CHYBA: Odeslání RAW zprávy selhalo. Důvod: {str(e)}"
+        msg = f"CHYBA: Odeslání RAW selhalo. Důvod: {str(e)}"
         print(msg)
         loguj_aktivitu(msg)
         return False
