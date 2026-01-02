@@ -7,11 +7,6 @@ import datetime
 import time
 import ssl
 import socket
-# Knihovnu ctrader_fix už pro odesílání nepotřebujeme, ale necháme import, kdyby tam byly jiné závislosti
-try:
-    from ctrader_fix import *
-except:
-    pass
 
 # --- KONFIGURACE ---
 TRAIL_PCT = 0.012   # 1.2% Trailing Stop-Loss
@@ -24,18 +19,15 @@ def loguj_aktivitu_eth(zprava):
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- GENEBÁTOR FIX ZPRÁV ---
+# --- GENERÁTOR FIX ZPRÁV ---
 def create_fix_msg(msg_type, tags_dict):
     """Sestaví validní FIX zprávu včetně hlavičky a checksumu."""
     s = "\x01"
-    # Tělo
     body = ""
     for tag, val in tags_dict.items():
         body += f"{tag}={val}{s}"
     
-    # Hlavička (bez BodyLength a Checksum)
-    # 8=FIX.4.4 | 9=LENGTH | 35=MSGTYPE
-    # Délka se počítá od tagu 35
+    # Hlavička (35=MsgType)
     temp_head = f"35={msg_type}{s}{body}"
     length = len(temp_head)
     
@@ -49,17 +41,21 @@ def create_fix_msg(msg_type, tags_dict):
 # --- SYNCHRONNÍ ODESLÁNÍ PŘES SSL ---
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
-    host = os.getenv('FIX_HOST', 'h65.p.ctrader.com') # Default fallback
+    host = os.getenv('FIX_HOST', 'h65.p.ctrader.com')
     port = int(os.getenv('FIX_PORT', 5212))
     sender_id = os.getenv('FIX_SENDER_ID')
     target_id = os.getenv('FIX_TARGET_ID')
     password = os.getenv('FIX_PASSWORD')
     
-    # Nastavení objemu: 15 lotů = 1500000 units (často) nebo 15.
-    # Pro jistotu zkusíme raw 15, cTrader by to měl pobrat nebo vrátit chybu.
+    # Nastavení objemu: Převedeme na int, aby to bylo "15" a ne "15.0"
     volume = 15
     if "BTC" in symbol_clean: volume = 2
-
+    
+    # cTrader často vyžaduje volume v základních jednotkách (units).
+    # 1 Lot = 100,000 units (často).
+    # Pokud ti to příkaz vezme jako 15 units (mikroskopické množství), musíme to příště vynásobit.
+    # Zatím necháme raw 15, uvidíme, co řekne server.
+    
     print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
     
     try:
@@ -70,28 +66,30 @@ def proved_obchod_fix(symbol, side):
         print(f"DEBUG: Připojeno k {host}:{port}")
 
         # 2. LOGON (MsgType=A)
-        # 98=0 (No Encryption), 108=30 (Heartbeat), 141=Y (ResetSeqNum - DŮLEŽITÉ pro jednorázové skripty)
+        # PŘIDÁNO: Tag 57 (TargetSubID) = TRADE
         logon_tags = {
             49: sender_id,
             56: target_id,
-            34: 1, # SeqNum 1
+            57: "TRADE",    # <--- TOTO JE TA KLÍČOVÁ OPRAVA!
+            50: "QUOTE",    # SenderSubID (často vyžadováno jako pár k TargetSubID)
+            34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
             108: "30",
-            553: sender_id, # Username
-            554: password,  # Password
-            141: "Y"        # Reset Sequence Number (aby se nám nehádalo číslování)
+            553: sender_id,
+            554: password,
+            141: "Y"
         }
         logon_msg = create_fix_msg("A", logon_tags)
         ssock.sendall(logon_msg)
         
-        # Čekáme na odpověď (Logon Success)
+        # Čekání na Logon
         response = ssock.recv(4096).decode('ascii', errors='ignore')
-        if "35=A" in response:
-            print("DEBUG: Logon úspěšný!")
+        if "35=A" in response and "10=" in response:
+            print("DEBUG: Logon úspěšný! Server odpověděl 35=A.")
         else:
-            print(f"CHYBA: Logon selhal nebo divná odpověď: {response}")
-            # I když to selže, zkusíme poslat order (někdy to projde)
+            print(f"VAROVÁNÍ: Logon odpověď je divná, ale zkouším pokračovat: {response}")
+            # Pokud tam je chyba "Logout", nemá smysl pokračovat, ale zkusíme to pro debug.
 
         # 3. NEW ORDER SINGLE (MsgType=D)
         order_id = f"BOB_{int(time.time())}"
@@ -100,12 +98,14 @@ def proved_obchod_fix(symbol, side):
         order_tags = {
             49: sender_id,
             56: target_id,
-            34: 2, # SeqNum 2 (Logon byl 1)
+            57: "TRADE",  # Musí být i v hlavičce objednávky
+            50: "QUOTE",
+            34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             11: order_id,
             55: symbol_clean,
             54: side_code,
-            38: str(volume), # Množství
+            38: str(int(volume)), # Posíláme jako string bez desetinných míst
             40: "1",         # Market Order
             59: "0",         # Day
             60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
@@ -116,22 +116,33 @@ def proved_obchod_fix(symbol, side):
         ssock.sendall(order_msg)
         
         # 4. ČEKÁNÍ NA POTVRZENÍ
-        time.sleep(1) # Krátká pauza pro jistotu
+        time.sleep(2) # Dáme tomu chvilku
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         
         ssock.close()
         
-        if "35=8" in response_order: # Execution Report
-            msg = f"ÚSPĚCH: Obchod potvrzen serverem! Odpověď obsahuje ExecutionReport."
+        # Hledáme tag 35=8 (Execution Report)
+        if "35=8" in response_order: 
+            # Ještě zkontrolujeme tag 150 (ExecType) nebo 39 (OrdStatus)
+            # 39=8 znamená Rejected. 39=0 znamená New/Accepted.
+            if "39=8" in response_order:
+                # Najdeme text chyby (Tag 58)
+                err_text = ""
+                if "58=" in response_order:
+                    err_text = response_order.split("58=")[1].split("\x01")[0]
+                msg = f"ZAMÍTNUTO: Server příkaz odmítl. Důvod: {err_text}"
+            else:
+                msg = f"ÚSPĚCH: Obchod potvrzen serverem! (Execution Report přijat)"
+            
             print(msg)
             print(f"DETAIL ODPOVĚDI: {response_order}")
             loguj_aktivitu_eth(msg)
             return True
         else:
-            msg = f"NEJISTÝ VÝSLEDEK: Data odeslána, ale odpověď není jasná: {response_order}"
+            msg = f"NEJISTÝ VÝSLEDEK: Data odeslána, odpověď: {response_order}"
             print(msg)
             loguj_aktivitu_eth(msg)
-            return True # Vracíme True, protože jsme udělali maximum
+            return True
 
     except Exception as e:
         msg = f"CHYBA SOCKETU: {str(e)}"
