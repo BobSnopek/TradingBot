@@ -21,13 +21,12 @@ def loguj_aktivitu_eth(zprava):
 
 def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
-    # Hlavička musí mít správné pořadí
-    head_tags = ['35', '49', '56', '50', '57', '34', '52']
+    # Hlavička (přísné pořadí)
+    head_tags = ['35', '49', '56', '57', '34', '52']
     head_str = ""
-    head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 50, 57, 34, 52]}
-    head_data[35] = msg_type # MsgType není v dictu, je v argumentu
+    head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 57, 34, 52]}
+    head_data[35] = msg_type
     
-    # Sestavení hlavičky
     for tag_str in head_tags:
         tag = int(tag_str) if tag_str != '35' else 35
         val = tags_dict.get(tag)
@@ -36,7 +35,6 @@ def create_fix_msg(msg_type, tags_dict):
         elif tag == 35:
             head_str += f"35={msg_type}{s}"
 
-    # Sestavení těla (zbytek)
     body_str = ""
     for tag, val in tags_dict.items():
         if str(tag) not in head_tags and tag != 35:
@@ -54,20 +52,29 @@ def proved_obchod_fix(symbol, side):
     
     host = "live-uk-eqx-01.p.c-trader.com"
     port = 5212
-    sender_comp_id = "live.ftmo.17032147"
+    
+    # --- POKUS O ZMĚNU ID ---
+    # Zkusíme poslat JEN ČÍSLO i jako SenderCompID
+    # Místo "live.ftmo.17032147" dáme jen "17032147"
+    sender_comp_id = "17032147" 
     username_int = "17032147"
     target_comp_id = "cServer"
     
-    # NOVÉ HESLO
+    # HESLO
     password = "CHeslo2026" 
     
     volume = 15
     if "BTC" in symbol_clean: volume = 2
     
     print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
+    print(f"DEBUG: Zkouším ID '{sender_comp_id}' (bez live.ftmo...)")
     
     try:
+        # SSL Context bez přísné kontroly (pro jistotu)
         context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
         
@@ -75,8 +82,8 @@ def proved_obchod_fix(symbol, side):
         logon_tags = {
             49: sender_comp_id, 
             56: target_comp_id,
-            50: "TRADE",        # <--- OPRAVA: SenderSubID musí být TRADE
-            57: "TRADE",        # TargetSubID je TRADE
+            57: "TRADE",
+            # 50: "TRADE", <--- SMAZÁNO (Na portu 5212 se často nepoužívá)
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
@@ -90,13 +97,12 @@ def proved_obchod_fix(symbol, side):
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         
         if "35=A" in response and "58=" not in response:
-            print(f"DEBUG: Logon OK! (Uživatel: {username_int})")
+            print(f"DEBUG: Logon OK! (ID: {sender_comp_id})")
         else:
             err = "Neznámá chyba"
             if "58=" in response:
                 err = response.split("58=")[1].split("\x01")[0]
             print(f"VAROVÁNÍ: Logon selhal: {err}")
-            # I tak zkusíme poslat příkaz
 
         # ORDER
         order_id = f"BOB_{int(time.time())}"
@@ -105,7 +111,6 @@ def proved_obchod_fix(symbol, side):
         order_tags = {
             49: sender_comp_id,
             56: target_comp_id,
-            50: "TRADE",        # <--- I ZDE
             57: "TRADE",
             34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
