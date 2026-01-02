@@ -48,40 +48,40 @@ def create_fix_msg(msg_type, tags_dict):
     return msg_final.encode('ascii')
 
 def proved_obchod_fix(symbol, side):
-    symbol_clean = symbol.replace("-", "").replace("/", "")
-    
-    # ÚDAJE Z TVÉHO SCREENSHOTU
+    # --- FINÁLNÍ ÚDAJE ---
     host = "live-uk-eqx-01.p.c-trader.com"
     port = 5212
     sender_comp_id = "live.ftmo.17032147"
     target_comp_id = "cServer"
+    password = "CTrader2026"
+    username = "17032147"
     
-    # NOVÉ HESLO
-    password = "CHeslo2026"
-    username = "17032147" # Číslo účtu
+    # !!! ZDE JE TA MAGICKÁ ÚPRAVA !!!
+    # Místo "ETHUSD" posíláme ID "323"
+    fix_symbol_id = "323"
     
+    # Objem: 15 kontraktů (cca 1.5 lotu, bezpečné pro test)
     volume = 15
-    if "BTC" in symbol_clean: volume = 2
     
-    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
+    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} pro ID {fix_symbol_id} (ETH) ---")
     
     try:
         context = ssl.create_default_context()
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
         
-        # 1. LOGON (Podle screenshotu Trade Connection)
+        # 1. LOGON
         logon_tags = {
             49: sender_comp_id, 
             56: target_comp_id,
-            50: "TRADE",        # SenderSubID (Z SCREENSHOTU!)
-            57: "TRADE",        # TargetSubID (Standard pro trade session)
+            50: "TRADE",
+            57: "TRADE",
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
             108: "30",
-            553: username,      # Username
-            554: password,      # Password
+            553: username,
+            554: password,
             141: "Y"
         }
         ssock.sendall(create_fix_msg("A", logon_tags))
@@ -89,13 +89,9 @@ def proved_obchod_fix(symbol, side):
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         
         if "35=A" in response and "58=" not in response:
-            print(f"DEBUG: Logon ÚSPĚŠNÝ! Jdeme na to.")
+            print(f"DEBUG: Logon ÚSPĚŠNÝ! Jdeme obchodovat.")
         else:
-            err = "Neznámá chyba"
-            if "58=" in response:
-                err = response.split("58=")[1].split("\x01")[0]
-            print(f"VAROVÁNÍ: Logon selhal: {err}")
-            print(f"RAW: {response}")
+            print(f"VAROVÁNÍ: Logon problém: {response}")
 
         # 2. ORDER
         order_id = f"BOB_{int(time.time())}"
@@ -104,16 +100,16 @@ def proved_obchod_fix(symbol, side):
         order_tags = {
             49: sender_comp_id,
             56: target_comp_id,
-            50: "TRADE",        # Musí být i zde
+            50: "TRADE",
             57: "TRADE",
             34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             11: order_id,
-            55: symbol_clean,
+            55: fix_symbol_id,   # <--- ZDE POSÍLÁME "323"
             54: side_code,
             38: str(int(volume)),
-            40: "1",
-            59: "0",
+            40: "1",         # Market Order
+            59: "0",         # Day
             60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         }
         
@@ -124,8 +120,9 @@ def proved_obchod_fix(symbol, side):
         
         if "35=8" in response_order:
             if "39=8" not in response_order:
-                msg = f"ÚSPĚCH: Obchod potvrzen! {symbol_clean} {side}"
+                msg = f"ÚSPĚCH: Obchod potvrzen! Server přijal ID {fix_symbol_id}."
                 print(msg)
+                print(f"DETAIL: {response_order}")
                 loguj_aktivitu_eth(msg)
                 return True
             else:
