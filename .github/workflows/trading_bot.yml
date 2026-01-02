@@ -44,3 +44,11 @@ jobs:
         path: |
           *_activity.txt
           vypis_obchodu_*.txt
+
+    - name: Commit and Push changes
+      run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add ETH_last_signal.txt ETH_bot_activity.txt
+          git commit -m "Aktualizace stavu bota a logů" || echo "Žádné změny k uložení"
+          git push
