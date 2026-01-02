@@ -15,7 +15,6 @@ RISK_PCT = 0.20
 LEVERAGE = 3
 
 def loguj_aktivitu_eth(zprava):
-    # Oprava času pro logování
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
@@ -24,7 +23,6 @@ def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
     head_tags = ['35', '49', '56', '50', '57', '34', '52']
     head_str = ""
-    # Seřadíme hlavičku
     head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 50, 57, 34, 52]}
     head_data[35] = msg_type
     
@@ -60,7 +58,7 @@ def parse_price_from_response(response):
     return None
 
 def parse_error_reason(response):
-    """Vytáhne text chyby (Tag 58) z FIX zprávy, pokud existuje."""
+    """Vytáhne text chyby (Tag 58) z FIX zprávy."""
     try:
         if "58=" in response:
             parts = response.split("\x01")
@@ -72,7 +70,6 @@ def parse_error_reason(response):
     return ""
 
 def get_utc_timestamp():
-    """Vrací aktuální UTC čas ve formátu pro FIX protokol."""
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
 
 def proved_obchod_a_zajisti(symbol, side, current_market_price):
@@ -122,16 +119,11 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
         }
         
         ssock.sendall(create_fix_msg("D", order_tags))
-        # Krátká pauza stačí, ale recv je klíčový
-        time.sleep(0.5) 
+        time.sleep(1) # Zvýšený čas pro jistotu
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         
-        # Kontrola, zda byl příkaz přijat (35=8 je ExecutionReport)
-        if "35=8" in response_order and "39=8" not in response_order: # 39=8 je Rejected
-            # Zkusíme zjistit cenu ze serveru
+        if "35=8" in response_order and "39=8" not in response_order:
             filled_price = parse_price_from_response(response_order)
-            
-            # POKUD SERVER NEPOŠLE CENU, POUŽIJEME CENU Z GRAFU (ZÁLOŽNÍ PLÁN)
             final_price = filled_price if filled_price else current_market_price
             
             source_msg = "(ze serveru)" if filled_price else "(z grafu - záloha)"
@@ -139,7 +131,7 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
             print(msg)
             loguj_aktivitu_eth(msg)
             
-            # 3. ZAJIŠTĚNÍ (Nyní proběhne VŽDY)
+            # 3. ZAJIŠTĚNÍ
             if side.lower() == "buy":
                 sl_price = round(final_price * (1 - SL_PCT), 2)
                 tp_price = round(final_price * (1 + TP_PCT), 2)
@@ -158,38 +150,42 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
                 49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
                 34: 3, 52: get_utc_timestamp(),
                 11: f"SL_{int(time.time())}", 55: fix_symbol_id, 54: sl_side,
-                38: str(int(volume)), 40: "3", 99: f"{sl_price:.2f}", # Formát na 2 desetinná místa
+                38: str(int(volume)), 40: "3", 99: f"{sl_price:.2f}",
                 59: "0", 60: get_utc_timestamp()
             }
             ssock.sendall(create_fix_msg("D", sl_tags))
-            time.sleep(0.2)
+            time.sleep(1.0) # Čekáme déle
             response_sl = ssock.recv(4096).decode('ascii', errors='ignore')
             
+            # DEBUG VÝPIS PRO SL
+            print(f"DEBUG SL RAW: {response_sl.replace(chr(1), '|')}")
+            
             if "35=8" in response_sl and "39=8" not in response_sl:
-                print("-> SL nastaven OK")
+                print("-> SL příkaz server přijal (Check 'Orders' tab).")
             else:
                 err = parse_error_reason(response_sl)
-                print(f"-> CHYBA SL: Server odmítl příkaz. Důvod: {err}")
-                loguj_aktivitu_eth(f"CHYBA SL: {err}")
+                print(f"-> CHYBA SL: {err}")
 
             # --- ODESLÁNÍ TP ---
             tp_tags = {
                 49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
                 34: 4, 52: get_utc_timestamp(),
                 11: f"TP_{int(time.time())}", 55: fix_symbol_id, 54: tp_side,
-                38: str(int(volume)), 40: "2", 44: f"{tp_price:.2f}", # Formát na 2 desetinná místa
+                38: str(int(volume)), 40: "2", 44: f"{tp_price:.2f}",
                 59: "0", 60: get_utc_timestamp()
             }
             ssock.sendall(create_fix_msg("D", tp_tags))
-            time.sleep(0.2)
+            time.sleep(1.0) # Čekáme déle
             response_tp = ssock.recv(4096).decode('ascii', errors='ignore')
 
+            # DEBUG VÝPIS PRO TP
+            print(f"DEBUG TP RAW: {response_tp.replace(chr(1), '|')}")
+
             if "35=8" in response_tp and "39=8" not in response_tp:
-                print("-> TP nastaven OK")
+                print("-> TP příkaz server přijal (Check 'Orders' tab).")
             else:
                 err = parse_error_reason(response_tp)
-                print(f"-> CHYBA TP: Server odmítl příkaz. Důvod: {err}")
-                loguj_aktivitu_eth(f"CHYBA TP: {err}")
+                print(f"-> CHYBA TP: {err}")
 
             loguj_aktivitu_eth(f"Kalkulace ochrany: SL: {sl_price}, TP: {tp_price}")
             return True
@@ -270,7 +266,7 @@ final_bal = run_trailing_sim_eth(df)
 # 5. EXECUTION
 posledni_radek = df.iloc[-1]
 signal_dnes = posledni_radek['Signal']
-aktualni_cena = posledni_radek['Close'] # Cena z grafu pro zálohu
+aktualni_cena = posledni_radek['Close'] 
 
 print(f"--- Analýza {symbol} ---")
 if signal_dnes != 0:
