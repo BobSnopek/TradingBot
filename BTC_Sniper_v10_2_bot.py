@@ -10,8 +10,8 @@ import socket
 from sklearn.ensemble import RandomForestClassifier
 
 # --- KONFIGURACE OCHRANY A RISK MANAGEMENTU ---
-SL_PCT = 0.015   # Stop Loss 1.5% (Pokud cena klesne o 1.5%, prodáváme)
-TP_PCT = 0.030   # Take Profit 3.0% (Pokud cena stoupne o 3%, vybíráme zisk)
+SL_PCT = 0.015   # Stop Loss 1.5%
+TP_PCT = 0.030   # Take Profit 3.0%
 RISK_PCT = 0.25
 LEVERAGE = 5     # Páka pro BTC
 
@@ -49,7 +49,7 @@ def create_fix_msg(msg_type, tags_dict):
     return msg_final.encode('ascii')
 
 def parse_price_from_response(response):
-    """Vytáhne cenu (Tag 6 - AvgPx) z odpovědi serveru pro výpočet SL/TP."""
+    """Vytáhne cenu (Tag 6 - AvgPx) z odpovědi serveru."""
     try:
         if "6=" in response:
             parts = response.split("\x01")
@@ -60,8 +60,8 @@ def parse_price_from_response(response):
         return None
     return None
 
-def proved_obchod_a_zajisti(symbol, side):
-    # --- PŘIHLAŠOVACÍ ÚDAJE (FTMO / cTrader) ---
+def proved_obchod_a_zajisti(symbol, side, current_market_price):
+    # --- PŘIHLAŠOVACÍ ÚDAJE ---
     host = "live-uk-eqx-01.p.c-trader.com"
     port = 5212
     sender_comp_id = "live.ftmo.17032147"
@@ -71,8 +71,6 @@ def proved_obchod_a_zajisti(symbol, side):
     
     # ID instrumentu pro BTC = 324
     fix_symbol_id = "324"
-    
-    # Objem obchodu (2 kontrakty BTC)
     volume = 2
     
     print(f"--- FIX SOCKET: Odesílám {side} pro ID {fix_symbol_id} (BTC) ---")
@@ -95,79 +93,71 @@ def proved_obchod_a_zajisti(symbol, side):
             print("CHYBA: Logon selhal.")
             return False
 
-        # 2. MARKET ORDER (Vstup do pozice)
+        # 2. MARKET ORDER
         order_id = f"BOB_{int(time.time())}"
-        side_code = "1" if side.lower() == "buy" else "2" # 1=Buy, 2=Sell
+        side_code = "1" if side.lower() == "buy" else "2"
         
         order_tags = {
             49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
             34: 2, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             11: order_id,
-            55: fix_symbol_id, # ID 324
+            55: fix_symbol_id,
             54: side_code,
             38: str(int(volume)),
-            40: "1",     # Market Order
-            59: "0",     # Day
-            60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+            40: "1", 59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         }
         
         ssock.sendall(create_fix_msg("D", order_tags))
         time.sleep(1)
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         
-        # Kontrola úspěchu a výpočet ochrany
         if "35=8" in response_order and "39=8" not in response_order:
-            entry_price = parse_price_from_response(response_order)
-            msg = f"ÚSPĚCH: BTC Nakoupeno za {entry_price if entry_price else 'Neznámo'}"
+            # Zkusíme zjistit cenu ze serveru
+            filled_price = parse_price_from_response(response_order)
+            
+            # ZÁLOŽNÍ PLÁN: Pokud server cenu nepošle, použijeme cenu z grafu
+            final_price = filled_price if filled_price else current_market_price
+            
+            source_msg = "(ze serveru)" if filled_price else "(z grafu - záloha)"
+            msg = f"ÚSPĚCH: BTC Nakoupeno za {final_price:.2f} {source_msg}"
             print(msg)
             loguj_aktivitu(msg)
             
-            # 3. ZAJIŠTĚNÍ (STOP LOSS a TAKE PROFIT)
-            if entry_price:
-                # Výpočet cen
-                if side.lower() == "buy":
-                    sl_price = round(entry_price * (1 - SL_PCT), 2)
-                    tp_price = round(entry_price * (1 + TP_PCT), 2)
-                    sl_side = "2" # Sell Stop
-                    tp_side = "2" # Sell Limit
-                else: # Sell
-                    sl_price = round(entry_price * (1 + SL_PCT), 2)
-                    tp_price = round(entry_price * (1 - TP_PCT), 2)
-                    sl_side = "1" # Buy Stop
-                    tp_side = "1" # Buy Limit
+            # 3. ZAJIŠTĚNÍ (Proběhne VŽDY)
+            if side.lower() == "buy":
+                sl_price = round(final_price * (1 - SL_PCT), 2)
+                tp_price = round(final_price * (1 + TP_PCT), 2)
+                sl_side = "2"
+                tp_side = "2"
+            else: 
+                sl_price = round(final_price * (1 + SL_PCT), 2)
+                tp_price = round(final_price * (1 - TP_PCT), 2)
+                sl_side = "1"
+                tp_side = "1"
 
-                print(f"--- NASTAVUJI OCHRANU: SL={sl_price}, TP={tp_price} ---")
-                
-                # A) STOP LOSS ORDER (Type 3 = Stop Order)
-                sl_tags = {
-                    49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
-                    34: 3, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
-                    11: f"SL_{int(time.time())}",
-                    55: fix_symbol_id,
-                    54: sl_side,       # Opačný směr než vstup
-                    38: str(int(volume)),
-                    40: "3",           # STOP ORDER
-                    99: str(sl_price), # Stop Price
-                    59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
-                }
-                ssock.sendall(create_fix_msg("D", sl_tags))
-                time.sleep(0.5)
-                
-                # B) TAKE PROFIT ORDER (Type 2 = Limit Order)
-                tp_tags = {
-                    49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
-                    34: 4, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
-                    11: f"TP_{int(time.time())}",
-                    55: fix_symbol_id,
-                    54: tp_side,       # Opačný směr než vstup
-                    38: str(int(volume)),
-                    40: "2",           # LIMIT ORDER
-                    44: str(tp_price), # Limit Price
-                    59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
-                }
-                ssock.sendall(create_fix_msg("D", tp_tags))
-                print("Ochranné příkazy odeslány.")
-                loguj_aktivitu(f"Zajištěno SL: {sl_price}, TP: {tp_price}")
+            print(f"--- OCHRANA: SL={sl_price}, TP={tp_price} ---")
+            
+            # SL
+            sl_tags = {
+                49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
+                34: 3, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+                11: f"SL_{int(time.time())}", 55: fix_symbol_id, 54: sl_side,
+                38: str(int(volume)), 40: "3", 99: str(sl_price),
+                59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+            }
+            ssock.sendall(create_fix_msg("D", sl_tags))
+            time.sleep(0.5)
+            
+            # TP
+            tp_tags = {
+                49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
+                34: 4, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+                11: f"TP_{int(time.time())}", 55: fix_symbol_id, 54: tp_side,
+                38: str(int(volume)), 40: "2", 44: str(tp_price),
+                59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+            }
+            ssock.sendall(create_fix_msg("D", tp_tags))
+            loguj_aktivitu(f"Zajištěno SL: {sl_price}, TP: {tp_price}")
 
             return True
         else:
@@ -180,20 +170,20 @@ def proved_obchod_a_zajisti(symbol, side):
         print(f"CHYBA SOCKETU: {e}")
         return False
 
-# 1. DATA (Stahujeme BTC-USD)
+# 1. DATA
 symbol = 'BTC-USD'
 df_raw = yf.download(symbol, period='720d', interval='1h', auto_adjust=True)
 if isinstance(df_raw.columns, pd.MultiIndex):
     df_raw.columns = df_raw.columns.get_level_values(0)
 df = df_raw.copy()
 
-# Výpočet indikátorů pro AI
+# Výpočet indikátorů
 df['RSI'] = ta.rsi(df['Close'], length=7)
 macd = ta.macd(df['Close'], fast=8, slow=21, signal=5)
 macd_h_col = [c for c in macd.columns if 'h' in c.lower()][0]
 df['MACD_H'] = macd[macd_h_col]
 
-# 2. TRÉNINK AI MODELU
+# 2. TRÉNINK
 train_data = yf.download(symbol, start="2024-10-01", end="2025-01-01", interval='1h', auto_adjust=True)
 if isinstance(train_data.columns, pd.MultiIndex):
     train_data.columns = train_data.columns.get_level_values(0)
@@ -209,21 +199,21 @@ features = ['RSI', 'MACD_H']
 model_l = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42).fit(td[features], td['Target_L'])
 model_s = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42).fit(td[features], td['Target_S'])
 
-# 3. PREDIKCE (Rozhodnutí)
+# 3. PREDIKCE
 df['Prob_L'] = model_l.predict_proba(df[features])[:, 1]
 df['Prob_S'] = model_s.predict_proba(df[features])[:, 1]
 df['Signal'] = 0
 df.loc[df['Prob_L'] > 0.51, 'Signal'] = 1
 df.loc[df['Prob_S'] > 0.51, 'Signal'] = -1
 
-# 4. SIMULACE (Pro logování simulovaného zisku)
+# 4. SIMULACE (Fix s lokálními proměnnými)
 def run_trailing_sim(data):
     balance = 1000.0
+    MAX_HOLD = 8
+    TRAIL_PCT = 0.008
     with open('vypis_obchodu_TSL.txt', 'w') as f:
         f.write("DATUM | TYP | VSTUP | VYSTUP (TSL) | ZISK USD | BALANCE\n")
         f.write("-" * 75 + "\n")
-        MAX_HOLD = 8
-        TRAIL_PCT = 0.008
         for i in range(1, len(data) - MAX_HOLD):
             sig = data['Signal'].iloc[i]
             if sig != 0:
@@ -256,17 +246,19 @@ def run_trailing_sim(data):
     return balance
 final_bal = run_trailing_sim(df)
 
-# 5. EXECUTION (Ostrý obchod)
+# 5. EXECUTION
 posledni_radek = df.iloc[-1]
 signal_dnes = posledni_radek['Signal']
+aktualni_cena = posledni_radek['Close'] # Cena z grafu pro zálohu
+
 print(f"--- Analýza {symbol} ---")
 
 if signal_dnes != 0:
     smer = "BUY" if signal_dnes == 1 else "SELL"
     loguj_aktivitu(f"AKCE: {smer} (Pravděpodobnost L:{posledni_radek['Prob_L']:.2f}, S:{posledni_radek['Prob_S']:.2f})")
     
-    # Spuštění funkce s ochranou
-    proved_obchod_a_zajisti(symbol, smer)
+    # Spuštění funkce s ochranou a záložní cenou
+    proved_obchod_a_zajisti(symbol, smer, aktualni_cena)
 else:
     loguj_aktivitu("NEČINNOST")
     print("Žádný signál.")
