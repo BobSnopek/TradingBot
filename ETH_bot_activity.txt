@@ -36,3 +36,5 @@
 [2026-01-02 14:45:07] CHYBA: Odeslání RAW selhalo. Důvod: 'bytes' object has no attribute 'delimiter'
 [2026-01-02 14:49:13] Analýza ceny 3049.02 | ADX: 53.33, RSI: 70.92 -> AKCE: BUY
 [2026-01-02 14:49:13] ÚSPĚCH: HackMessage odeslána. ID: BOB_1767365353
+[2026-01-02 14:57:19] Analýza ceny 3086.65 | ADX: 56.77, RSI: 79.72 -> AKCE: BUY
+[2026-01-02 14:57:20] NEJISTÝ VÝSLEDEK: Data odeslána, ale odpověď není jasná: 
