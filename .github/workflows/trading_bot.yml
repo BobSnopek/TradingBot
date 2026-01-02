@@ -1,4 +1,4 @@
-name: Agresivní AI Trading (BTC & ETH)
+name: Agresivní AI Trading (Hardcoded)
 
 on:
   schedule:
@@ -8,50 +8,30 @@ on:
 jobs:
   trade:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     
     steps:
-      - name: Checkout kódu
-        uses: actions/checkout@v3
+    - name: Stažení repozitáře
+      uses: actions/checkout@v2
 
-      - name: Nastavení Pythonu
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-          cache: 'pip' # Toto srazí těch 49s instalace na minimum
+    - name: Nastavení Pythonu
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
 
-      - name: Instalace knihoven
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - name: Instalace knihoven
+      run: |
+        pip install yfinance pandas pandas_ta scikit-learn matplotlib seaborn twisted
 
-      - name: Spuštění BTC Sniper v10.2
-        continue-on-error: true # Důležité: Pád jednoho nezastaví druhého
-        env:
-          FIX_HOST: ${{ secrets.FIX_HOST }}
-          FIX_PORT: ${{ secrets.FIX_PORT }}
-          FIX_SENDER_ID: ${{ secrets.FIX_SENDER_ID }}
-          FIX_TARGET_ID: ${{ secrets.FIX_TARGET_ID }}
-          FIX_PASSWORD: ${{ secrets.FIX_PASSWORD }}
-        run: python BTC_Sniper_v10_2_bot.py
+    - name: Spuštění BTC Sniper v10.2
+      run: python BTC_Sniper_v10_2_bot.py
 
-      - name: Spuštění ETH Destroyer v6.2
-        continue-on-error: true
-        env:
-          FIX_HOST: ${{ secrets.FIX_HOST }}
-          FIX_PORT: ${{ secrets.FIX_PORT }}
-          FIX_SENDER_ID: ${{ secrets.FIX_SENDER_ID }}
-          FIX_TARGET_ID: ${{ secrets.FIX_TARGET_ID }}
-          FIX_PASSWORD: ${{ secrets.FIX_PASSWORD }}
-        run: python ETH_Destroyer_v6_2_bot.py # ZKONTROLUJ, ZDA TENTO ŘÁDEK MÁŠ
-        
-      - name: Uložit výsledky do repozitáře
-        if: always() # Uloží logy, i když bot spadne
-        run: |
-          git config --global user.name 'GitHub Action'
-          git config --global user.email 'action@github.com'
-          git add vypis_obchodu.txt BTC_bot_activity.txt ETH_bot_activity.txt || echo "Žádné soubory"
-          git commit -m "Aktualizace deníků [skip ci]" || echo "Beze změn"
-          git push
-          
+    - name: Spuštění ETH Destroyer v6.2
+      run: python ETH_Destroyer_v6_2_bot.py
+      
+    - name: Nahrání logů
+      uses: actions/upload-artifact@v4
+      with:
+        name: trading-logs
+        path: |
+          *_activity.txt
+          vypis_obchodu_*.txt
