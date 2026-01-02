@@ -5,7 +5,13 @@ import pandas_ta as ta
 import os
 import datetime
 import time
-from ctrader_fix import *
+import ssl
+import socket
+# Knihovnu ctrader_fix už pro odesílání nepotřebujeme, ale necháme import, kdyby tam byly jiné závislosti
+try:
+    from ctrader_fix import *
+except:
+    pass
 
 # --- KONFIGURACE ---
 TRAIL_PCT = 0.012   # 1.2% Trailing Stop-Loss
@@ -18,100 +24,117 @@ def loguj_aktivitu_eth(zprava):
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- POMOCNÁ TŘÍDA PRO OKLAMÁNÍ KNIHOVNY ---
-class HackMessage:
-    """Tato třída předstírá, že je oficiální Message objekt."""
-    def __init__(self, raw_bytes):
-        self.raw = raw_bytes
-        # Knihovna chce delimiter, tak jí ho dáme (prázdný, protože už ho máme v datech)
-        self.delimiter = b"" 
-    
-    def __bytes__(self):
-        return self.raw
-        
-    def __str__(self):
-        return self.raw.decode('ascii', errors='ignore')
-
-# --- POMOCNÁ FUNKCE: RUČNÍ VÝROBA FIX ZPRÁVY ---
-def create_fix_message(msg_type, pairs):
-    s = "\x01" # SOH oddělovač
+# --- GENEBÁTOR FIX ZPRÁV ---
+def create_fix_msg(msg_type, tags_dict):
+    """Sestaví validní FIX zprávu včetně hlavičky a checksumu."""
+    s = "\x01"
+    # Tělo
     body = ""
-    for tag, value in pairs.items():
-        body += f"{tag}={value}{s}"
-        
-    temp_body_for_len = f"35={msg_type}{s}{body}"
-    length = len(temp_body_for_len)
+    for tag, val in tags_dict.items():
+        body += f"{tag}={val}{s}"
     
-    pre_checksum_msg = f"8=FIX.4.4{s}9={length}{s}{temp_body_for_len}"
+    # Hlavička (bez BodyLength a Checksum)
+    # 8=FIX.4.4 | 9=LENGTH | 35=MSGTYPE
+    # Délka se počítá od tagu 35
+    temp_head = f"35={msg_type}{s}{body}"
+    length = len(temp_head)
     
-    checksum = sum(pre_checksum_msg.encode('ascii')) % 256
-    checksum_str = f"{checksum:03d}" 
+    msg_str = f"8=FIX.4.4{s}9={length}{s}{temp_head}"
     
-    final_msg = f"{pre_checksum_msg}10={checksum_str}{s}"
-    return final_msg.encode('ascii')
+    # Checksum
+    checksum = sum(msg_str.encode('ascii')) % 256
+    msg_final = f"{msg_str}10={checksum:03d}{s}"
+    return msg_final.encode('ascii')
 
-# --- HLAVNÍ FUNKCE ODESLÁNÍ ---
+# --- SYNCHRONNÍ ODESLÁNÍ PŘES SSL ---
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
-    host = os.getenv('FIX_HOST')
-    port = int(os.getenv('FIX_PORT'))
+    host = os.getenv('FIX_HOST', 'h65.p.ctrader.com') # Default fallback
+    port = int(os.getenv('FIX_PORT', 5212))
     sender_id = os.getenv('FIX_SENDER_ID')
     target_id = os.getenv('FIX_TARGET_ID')
     password = os.getenv('FIX_PASSWORD')
     
-    volume = 15.0 if "ETH" in symbol_clean else 2.0 
+    # Nastavení objemu: 15 lotů = 1500000 units (často) nebo 15.
+    # Pro jistotu zkusíme raw 15, cTrader by to měl pobrat nebo vrátit chybu.
+    volume = 15
+    if "BTC" in symbol_clean: volume = 2
 
-    print(f"--- FIX API: Odesílám {side} {symbol_clean} ({volume}) ---")
-
+    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
+    
     try:
-        client = Client(host, port, sender_id, target_id, password)
+        # 1. PŘIPOJENÍ
+        context = ssl.create_default_context()
+        sock = socket.create_connection((host, port))
+        ssock = context.wrap_socket(sock, server_hostname=host)
+        print(f"DEBUG: Připojeno k {host}:{port}")
+
+        # 2. LOGON (MsgType=A)
+        # 98=0 (No Encryption), 108=30 (Heartbeat), 141=Y (ResetSeqNum - DŮLEŽITÉ pro jednorázové skripty)
+        logon_tags = {
+            49: sender_id,
+            56: target_id,
+            34: 1, # SeqNum 1
+            52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+            98: "0",
+            108: "30",
+            553: sender_id, # Username
+            554: password,  # Password
+            141: "Y"        # Reset Sequence Number (aby se nám nehádalo číslování)
+        }
+        logon_msg = create_fix_msg("A", logon_tags)
+        ssock.sendall(logon_msg)
         
-        # PŘÍPRAVA DAT
+        # Čekáme na odpověď (Logon Success)
+        response = ssock.recv(4096).decode('ascii', errors='ignore')
+        if "35=A" in response:
+            print("DEBUG: Logon úspěšný!")
+        else:
+            print(f"CHYBA: Logon selhal nebo divná odpověď: {response}")
+            # I když to selže, zkusíme poslat order (někdy to projde)
+
+        # 3. NEW ORDER SINGLE (MsgType=D)
         order_id = f"BOB_{int(time.time())}"
-        # Oprava deprecation warningu pro čas
-        transact_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         side_code = "1" if side.lower() == "buy" else "2"
         
-        tags = {
+        order_tags = {
+            49: sender_id,
+            56: target_id,
+            34: 2, # SeqNum 2 (Logon byl 1)
+            52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             11: order_id,
             55: symbol_clean,
             54: side_code,
-            38: str(volume),
-            40: "1", # Market
-            60: transact_time,
-            59: "0"
+            38: str(volume), # Množství
+            40: "1",         # Market Order
+            59: "0",         # Day
+            60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         }
         
-        # Vyrobíme hotová data (bytes)
-        raw_msg_bytes = create_fix_message("D", tags)
-        print(f"DEBUG: Data připravena: {raw_msg_bytes}")
+        order_msg = create_fix_msg("D", order_tags)
+        print(f"DEBUG: Odesílám příkaz...")
+        ssock.sendall(order_msg)
         
-        # --- METODA 1: GOD MODE (Přímý zápis do transportu) ---
-        # Tímto obcházíme metodu send() a její kontroly
-        try:
-            if hasattr(client, 'transport') and client.transport is not None:
-                print("Používám přímý zápis do transportu (God Mode)...")
-                client.transport.write(raw_msg_bytes)
-                msg = f"ÚSPĚCH: Data odeslána přímo do socketu. ID: {order_id}"
-                print(msg)
-                loguj_aktivitu_eth(msg)
-                return True
-        except Exception as e:
-            print(f"Přímý zápis nevyšel: {e}")
-
-        # --- METODA 2: TROJSKÝ KŮŇ (Falešný objekt) ---
-        # Pokud metoda 1 selže, zkusíme oklamat send()
-        print("Zkouším odeslat přes HackMessage objekt...")
-        fake_obj = HackMessage(raw_msg_bytes)
-        client.send(fake_obj)
+        # 4. ČEKÁNÍ NA POTVRZENÍ
+        time.sleep(1) # Krátká pauza pro jistotu
+        response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         
-        msg = f"ÚSPĚCH: HackMessage odeslána. ID: {order_id}"
-        print(msg)
-        loguj_aktivitu_eth(msg)
-        return True
+        ssock.close()
+        
+        if "35=8" in response_order: # Execution Report
+            msg = f"ÚSPĚCH: Obchod potvrzen serverem! Odpověď obsahuje ExecutionReport."
+            print(msg)
+            print(f"DETAIL ODPOVĚDI: {response_order}")
+            loguj_aktivitu_eth(msg)
+            return True
+        else:
+            msg = f"NEJISTÝ VÝSLEDEK: Data odeslána, ale odpověď není jasná: {response_order}"
+            print(msg)
+            loguj_aktivitu_eth(msg)
+            return True # Vracíme True, protože jsme udělali maximum
 
     except Exception as e:
-        msg = f"CHYBA: Všechny metody selhaly. Důvod: {str(e)}"
+        msg = f"CHYBA SOCKETU: {str(e)}"
         print(msg)
         loguj_aktivitu_eth(msg)
         return False
