@@ -20,44 +20,31 @@ def loguj_aktivitu_eth(zprava):
         f.write(f"[{timestamp}] {zprava}\n")
 
 def create_fix_msg(msg_type, tags_dict):
-    """
-    Sestaví FIX zprávu s přísným řazením hlavičky.
-    Server cTrader může být citlivý na pořadí tagů.
-    """
     s = "\x01"
-    
-    # 1. HLAVIČKA (Musí být v tomto pořadí)
-    # Tagy: 35, 49, 56, 57, 34, 52
-    head_tags = ['35', '49', '56', '57', '34', '52']
+    # Hlavička musí mít správné pořadí
+    head_tags = ['35', '49', '56', '50', '57', '34', '52']
     head_str = ""
+    head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 50, 57, 34, 52]}
+    head_data[35] = msg_type # MsgType není v dictu, je v argumentu
     
-    # Dočasný slovník pro hlavičku
-    head_data = {
-        '35': msg_type,
-        '49': tags_dict.get(49),
-        '56': tags_dict.get(56),
-        '57': tags_dict.get(57),
-        '34': tags_dict.get(34),
-        '52': tags_dict.get(52)
-    }
-    
-    for tag in head_tags:
-        if head_data[tag]:
-            head_str += f"{tag}={head_data[tag]}{s}"
-            
-    # 2. TĚLO (Zbytek tagů)
+    # Sestavení hlavičky
+    for tag_str in head_tags:
+        tag = int(tag_str) if tag_str != '35' else 35
+        val = tags_dict.get(tag)
+        if val:
+            head_str += f"{tag}={val}{s}"
+        elif tag == 35:
+            head_str += f"35={msg_type}{s}"
+
+    # Sestavení těla (zbytek)
     body_str = ""
     for tag, val in tags_dict.items():
-        if str(tag) not in head_tags:
+        if str(tag) not in head_tags and tag != 35:
             body_str += f"{tag}={val}{s}"
             
-    # Složení: 8=... | 9=... | Hlavička | Tělo
     full_content = head_str + body_str
     length = len(full_content)
-    
     msg_str = f"8=FIX.4.4{s}9={length}{s}{full_content}"
-    
-    # Checksum
     checksum = sum(msg_str.encode('ascii')) % 256
     msg_final = f"{msg_str}10={checksum:03d}{s}"
     return msg_final.encode('ascii')
@@ -71,7 +58,7 @@ def proved_obchod_fix(symbol, side):
     username_int = "17032147"
     target_comp_id = "cServer"
     
-    # !!! ZDE DEJ TO NOVÉ JEDNODUCHÉ HESLO !!!
+    # NOVÉ HESLO
     password = "CHeslo2026" 
     
     volume = 15
@@ -88,7 +75,8 @@ def proved_obchod_fix(symbol, side):
         logon_tags = {
             49: sender_comp_id, 
             56: target_comp_id,
-            57: "TRADE",
+            50: "TRADE",        # <--- OPRAVA: SenderSubID musí být TRADE
+            57: "TRADE",        # TargetSubID je TRADE
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
@@ -108,7 +96,7 @@ def proved_obchod_fix(symbol, side):
             if "58=" in response:
                 err = response.split("58=")[1].split("\x01")[0]
             print(f"VAROVÁNÍ: Logon selhal: {err}")
-            # Pokud logon selže, nemá smysl posílat obchod, ale pro debug to necháme
+            # I tak zkusíme poslat příkaz
 
         # ORDER
         order_id = f"BOB_{int(time.time())}"
@@ -117,6 +105,7 @@ def proved_obchod_fix(symbol, side):
         order_tags = {
             49: sender_comp_id,
             56: target_comp_id,
+            50: "TRADE",        # <--- I ZDE
             57: "TRADE",
             34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
