@@ -14,10 +14,33 @@ TP_PCT = 0.030  # Take Profit 3.0%
 RISK_PCT = 0.20
 LEVERAGE = 3
 
+# --- ZMĚNA 1: BEZPEČNÝ OBJEM ---
+# Volume 1 je obvykle bezpečnější pro testování (0.1 lotu nebo 1 unit)
+# Původně jsi měl 15, což bylo 1.5 lotu!
+VOLUME_TO_TRADE = 1 
+
+# Soubor pro zapamatování posledního signálu (aby neotevíral stále dokola)
+STATE_FILE = 'ETH_last_signal.txt'
+
 def loguj_aktivitu_eth(zprava):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
+
+def get_last_signal():
+    """Přečte poslední provedený signál ze souboru."""
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, 'r') as f:
+            try:
+                return int(f.read().strip())
+            except:
+                return 0
+    return 0
+
+def save_last_signal(sig):
+    """Uloží aktuální signál, abychom ho příště neopakovali."""
+    with open(STATE_FILE, 'w') as f:
+        f.write(str(sig))
 
 def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
@@ -58,7 +81,6 @@ def parse_price_from_response(response):
     return None
 
 def parse_error_reason(response):
-    """Vytáhne text chyby (Tag 58) z FIX zprávy."""
     try:
         if "58=" in response:
             parts = response.split("\x01")
@@ -82,9 +104,8 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
     username = "17032147"
     
     fix_symbol_id = "323" # ETH
-    volume = 15
     
-    print(f"--- FIX SOCKET: Odesílám {side} pro ID {fix_symbol_id} ---")
+    print(f"--- FIX SOCKET: Odesílám {side} pro ID {fix_symbol_id} (Vol: {VOLUME_TO_TRADE}) ---")
     
     try:
         context = ssl.create_default_context()
@@ -114,20 +135,21 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
             11: order_id,
             55: fix_symbol_id,
             54: side_code,
-            38: str(int(volume)),
+            38: str(int(VOLUME_TO_TRADE)),
             40: "1", 59: "0", 60: get_utc_timestamp()
         }
         
         ssock.sendall(create_fix_msg("D", order_tags))
-        time.sleep(1) # Zvýšený čas pro jistotu
+        time.sleep(1.0) # Bezpečná pauza
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         
+        # Kontrola Execution Report (35=8) a zda není Rejected (39=8)
         if "35=8" in response_order and "39=8" not in response_order:
             filled_price = parse_price_from_response(response_order)
             final_price = filled_price if filled_price else current_market_price
             
             source_msg = "(ze serveru)" if filled_price else "(z grafu - záloha)"
-            msg = f"ÚSPĚCH: Nakoupeno za {final_price:.2f} {source_msg}"
+            msg = f"ÚSPĚCH: Otevřeno za {final_price:.2f} {source_msg}"
             print(msg)
             loguj_aktivitu_eth(msg)
             
@@ -135,59 +157,51 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
             if side.lower() == "buy":
                 sl_price = round(final_price * (1 - SL_PCT), 2)
                 tp_price = round(final_price * (1 + TP_PCT), 2)
-                sl_side = "2" # Prodej
-                tp_side = "2" # Prodej
+                sl_side = "2"
+                tp_side = "2"
             else: 
                 sl_price = round(final_price * (1 + SL_PCT), 2)
                 tp_price = round(final_price * (1 - TP_PCT), 2)
-                sl_side = "1" # Nákup
-                tp_side = "1" # Nákup
+                sl_side = "1"
+                tp_side = "1"
 
             print(f"--- OCHRANA: SL={sl_price}, TP={tp_price} ---")
             
-            # --- ODESLÁNÍ SL ---
+            # SL
             sl_tags = {
                 49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
                 34: 3, 52: get_utc_timestamp(),
                 11: f"SL_{int(time.time())}", 55: fix_symbol_id, 54: sl_side,
-                38: str(int(volume)), 40: "3", 99: f"{sl_price:.2f}",
+                38: str(int(VOLUME_TO_TRADE)), 40: "3", 99: f"{sl_price:.2f}",
                 59: "0", 60: get_utc_timestamp()
             }
             ssock.sendall(create_fix_msg("D", sl_tags))
-            time.sleep(1.0) # Čekáme déle
+            time.sleep(1.0)
             response_sl = ssock.recv(4096).decode('ascii', errors='ignore')
             
-            # DEBUG VÝPIS PRO SL
-            print(f"DEBUG SL RAW: {response_sl.replace(chr(1), '|')}")
-            
             if "35=8" in response_sl and "39=8" not in response_sl:
-                print("-> SL příkaz server přijal (Check 'Orders' tab).")
+                print("-> SL nastaven OK")
             else:
-                err = parse_error_reason(response_sl)
-                print(f"-> CHYBA SL: {err}")
+                print(f"-> CHYBA SL: {parse_error_reason(response_sl)}")
 
-            # --- ODESLÁNÍ TP ---
+            # TP
             tp_tags = {
                 49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
                 34: 4, 52: get_utc_timestamp(),
                 11: f"TP_{int(time.time())}", 55: fix_symbol_id, 54: tp_side,
-                38: str(int(volume)), 40: "2", 44: f"{tp_price:.2f}",
+                38: str(int(VOLUME_TO_TRADE)), 40: "2", 44: f"{tp_price:.2f}",
                 59: "0", 60: get_utc_timestamp()
             }
             ssock.sendall(create_fix_msg("D", tp_tags))
-            time.sleep(1.0) # Čekáme déle
+            time.sleep(1.0)
             response_tp = ssock.recv(4096).decode('ascii', errors='ignore')
 
-            # DEBUG VÝPIS PRO TP
-            print(f"DEBUG TP RAW: {response_tp.replace(chr(1), '|')}")
-
             if "35=8" in response_tp and "39=8" not in response_tp:
-                print("-> TP příkaz server přijal (Check 'Orders' tab).")
+                print("-> TP nastaven OK")
             else:
-                err = parse_error_reason(response_tp)
-                print(f"-> CHYBA TP: {err}")
+                print(f"-> CHYBA TP: {parse_error_reason(response_tp)}")
 
-            loguj_aktivitu_eth(f"Kalkulace ochrany: SL: {sl_price}, TP: {tp_price}")
+            loguj_aktivitu_eth(f"Ochrana odeslána: SL {sl_price}, TP {tp_price}")
             return True
         else:
             err = parse_error_reason(response_order)
@@ -223,7 +237,7 @@ df.loc[(df['ADX'] > 30) & (df['DMN'] > df['DMP']) & (df['EMA_FAST'] < df['EMA_SL
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] > df['EMA_SLOW']) & (df['RSI'] > 58), 'Signal'] = -1
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] < df['EMA_SLOW']) & (df['RSI'] < 42), 'Signal'] = 1
 
-# 4. SIMULACE
+# 4. SIMULACE (Volitelná - jen pro info do souboru)
 def run_trailing_sim_eth(data):
     balance = 1000.0
     MAX_HOLD = 12
@@ -236,7 +250,7 @@ def run_trailing_sim_eth(data):
             if sig != 0 and sig != data['Signal'].iloc[i-1]:
                 entry = data['Close'].iloc[i]
                 res = 0
-                if sig == 1: # LONG
+                if sig == 1:
                     peak = entry
                     for h in range(1, MAX_HOLD + 1):
                         curr_p = data['Close'].iloc[i+h]
@@ -246,7 +260,7 @@ def run_trailing_sim_eth(data):
                             res = (sl - entry) / entry
                             break
                         res = (curr_p - entry) / entry
-                else: # SHORT
+                else:
                     bottom = entry
                     for h in range(1, MAX_HOLD + 1):
                         curr_p = data['Close'].iloc[i+h]
@@ -263,17 +277,36 @@ def run_trailing_sim_eth(data):
     return balance
 final_bal = run_trailing_sim_eth(df)
 
-# 5. EXECUTION
+# 5. EXECUTION (S KONTROLOU DUPLICIT)
 posledni_radek = df.iloc[-1]
-signal_dnes = posledni_radek['Signal']
-aktualni_cena = posledni_radek['Close'] 
+signal_dnes = int(posledni_radek['Signal'])
+aktualni_cena = posledni_radek['Close']
+last_signal = get_last_signal()
 
 print(f"--- Analýza {symbol} ---")
+print(f"Signál dnes: {signal_dnes} | Poslední uložený signál: {last_signal}")
+
 if signal_dnes != 0:
-    smer = "BUY" if signal_dnes == 1 else "SELL"
-    loguj_aktivitu_eth(f"AKCE: {smer}")
-    proved_obchod_a_zajisti(symbol, smer, aktualni_cena)
+    # Obchodujeme pouze pokud se signál změnil oproti minule
+    if signal_dnes != last_signal:
+        smer = "BUY" if signal_dnes == 1 else "SELL"
+        loguj_aktivitu_eth(f"NOVÝ SIGNÁL: {smer} (Změna z {last_signal})")
+        
+        uspech = proved_obchod_a_zajisti(symbol, smer, aktualni_cena)
+        
+        if uspech:
+            save_last_signal(signal_dnes)
+            print("Stav signálu aktualizován v souboru.")
+    else:
+        print("IGNORUJI: Tento signál už jsme zobchodovali (Anti-Stacking).")
+        loguj_aktivitu_eth(f"IGNOROVÁNO: Signál {signal_dnes} se nezměnil.")
 else:
+    # Pokud je signál 0 (neutrální), uložíme 0, abychom byli připraveni na nový nákup
+    if last_signal != 0:
+        save_last_signal(0)
+        print("Signál zmizel -> Resetuji stav na 0.")
+    
     loguj_aktivitu_eth("NEČINNOST")
     print("Žádný signál.")
+
 print(f"Simulace hotova.")
