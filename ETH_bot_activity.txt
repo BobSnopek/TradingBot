@@ -34,3 +34,5 @@
 [2026-01-02 14:35:50] CHYBA: Odeslání RAW zprávy selhalo. Důvod: name 'Message' is not defined
 [2026-01-02 14:45:07] Analýza ceny 3047.06 | ADX: 53.33, RSI: 70.02 -> AKCE: BUY
 [2026-01-02 14:45:07] CHYBA: Odeslání RAW selhalo. Důvod: 'bytes' object has no attribute 'delimiter'
+[2026-01-02 14:49:13] Analýza ceny 3049.02 | ADX: 53.33, RSI: 70.92 -> AKCE: BUY
+[2026-01-02 14:49:13] ÚSPĚCH: HackMessage odeslána. ID: BOB_1767365353
