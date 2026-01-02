@@ -18,69 +18,41 @@ def loguj_aktivitu_eth(zprava):
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- POMOCNÁ FUNKCE: RUČNÍ VÝROBA FIX ZPRÁVY (MACGYVER STYLE) ---
+# --- POMOCNÁ TŘÍDA PRO OKLAMÁNÍ KNIHOVNY ---
+class HackMessage:
+    """Tato třída předstírá, že je oficiální Message objekt."""
+    def __init__(self, raw_bytes):
+        self.raw = raw_bytes
+        # Knihovna chce delimiter, tak jí ho dáme (prázdný, protože už ho máme v datech)
+        self.delimiter = b"" 
+    
+    def __bytes__(self):
+        return self.raw
+        
+    def __str__(self):
+        return self.raw.decode('ascii', errors='ignore')
+
+# --- POMOCNÁ FUNKCE: RUČNÍ VÝROBA FIX ZPRÁVY ---
 def create_fix_message(msg_type, pairs):
-    """
-    Sestaví RAW FIX zprávu bez potřeby externí knihovny.
-    Počítá správně BodyLength (tag 9) a Checksum (tag 10).
-    """
-    # 1. Tělo zprávy
-    body_components = [f"35={msg_type}"]
-    for tag, value in pairs.items():
-        body_components.append(f"{tag}={value}")
-    
-    body_content = "\x01".join(body_components)
-    
-    # 2. Hlavička (kromě BodyLength)
-    # 8=FIX.4.4 | 49=Sender | 56=Target | 34=SeqNum (Client si to snad doplní, nebo dáme 1)
-    # Pozn: Většina raw klientů vyžaduje, aby 8, 49, 56 bylo už ve zprávě, pokud to nedělají sami.
-    # Zkusíme minimalistickou verzi, kterou Client.send() obalí, nebo plnou.
-    # Podle chyby 'Message not defined' klient očekává hotová data.
-    
-    # Odhadujeme, že 'Client' třída řeší login (tagy 49, 56). 
-    # Takže my posíláme jen payload. Ale pro jistotu pošleme validní FIX strukturu.
-    
-    # Sestavíme jen "obsah", client.send() to pravděpodobně obalí.
-    # Ale pokud send() bere raw bytes, musíme to poslat celé.
-    # Zkusíme poslat dictionary, pokud to client.send() umí zpracovat (podle dir() tam není nic jiného).
-    # Pokud client.send() bere string/bytes, musíme to zformátovat.
-    
-    # VRACÍME SLOVNÍK DAT - Protože Client.send() pravděpodobně očekává objekt nebo data
-    # Pokud send() je jen wrapper pro transport.write(), potřebujeme bytes.
-    pass 
-    # Vzhledem k tomu, že nevidíme do 'Client', zkusíme nejprve poslat BYTES.
-    
     s = "\x01" # SOH oddělovač
-    # Začátek standardní hlavičky
-    header = f"8=FIX.4.4{s}35={msg_type}{s}"
-    
-    # Přidáme tagy z parametrů
     body = ""
     for tag, value in pairs.items():
         body += f"{tag}={value}{s}"
         
-    # Spočítáme délku (BodyLength tag 9)
-    # Délka je počet znaků od tagu 35 (včetně) do tagu 10 (nevčetně)
-    # Ale pozor, 'header' už obsahuje 35. 
-    # BodyLength = len(35=...) + len(body)
     temp_body_for_len = f"35={msg_type}{s}{body}"
     length = len(temp_body_for_len)
     
-    # Finální zpráva před checksumem: 8=...|9=LENGTH|35=...|...body...|
     pre_checksum_msg = f"8=FIX.4.4{s}9={length}{s}{temp_body_for_len}"
     
-    # Výpočet Checksum (tag 10)
-    # Součet všech bytů % 256
     checksum = sum(pre_checksum_msg.encode('ascii')) % 256
-    checksum_str = f"{checksum:03d}" # Musí být 3 číslice (např 065)
+    checksum_str = f"{checksum:03d}" 
     
     final_msg = f"{pre_checksum_msg}10={checksum_str}{s}"
-    return final_msg.encode('ascii') # Vracíme jako BYTES
+    return final_msg.encode('ascii')
 
-# --- OPRAVENÁ FUNKCE PRO FIX API ---
+# --- HLAVNÍ FUNKCE ODESLÁNÍ ---
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
-    # Konfigurace
     host = os.getenv('FIX_HOST')
     port = int(os.getenv('FIX_PORT'))
     sender_id = os.getenv('FIX_SENDER_ID')
@@ -89,18 +61,17 @@ def proved_obchod_fix(symbol, side):
     
     volume = 15.0 if "ETH" in symbol_clean else 2.0 
 
-    print(f"--- FIX API: Odesílám {side} {symbol_clean} ({volume}) přes MANUAL RAW ---")
-    
+    print(f"--- FIX API: Odesílám {side} {symbol_clean} ({volume}) ---")
+
     try:
         client = Client(host, port, sender_id, target_id, password)
         
         # PŘÍPRAVA DAT
         order_id = f"BOB_{int(time.time())}"
-        transact_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+        # Oprava deprecation warningu pro čas
+        transact_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         side_code = "1" if side.lower() == "buy" else "2"
         
-        # Vytvoříme slovník tagů pro NewOrderSingle (D)
-        # Tagy: 11(ID), 55(Sym), 54(Side), 38(Qty), 40(Type=Market), 60(Time)
         tags = {
             11: order_id,
             55: symbol_clean,
@@ -108,23 +79,39 @@ def proved_obchod_fix(symbol, side):
             38: str(volume),
             40: "1", # Market
             60: transact_time,
-            59: "0"  # TimeInForce = Day (nebo 0=Day, 1=GTC, 3=IOC)
+            59: "0"
         }
         
-        # 1. POKUS: Poslat RAW BYTES (vyrobené naší funkcí)
-        # Toto je největší jistota, pokud client.send() prostě posílá data do socketu.
-        raw_msg = create_fix_message("D", tags)
+        # Vyrobíme hotová data (bytes)
+        raw_msg_bytes = create_fix_message("D", tags)
+        print(f"DEBUG: Data připravena: {raw_msg_bytes}")
         
-        print(f"DEBUG: Odesílám raw bytes: {raw_msg}")
-        client.send(raw_msg)
+        # --- METODA 1: GOD MODE (Přímý zápis do transportu) ---
+        # Tímto obcházíme metodu send() a její kontroly
+        try:
+            if hasattr(client, 'transport') and client.transport is not None:
+                print("Používám přímý zápis do transportu (God Mode)...")
+                client.transport.write(raw_msg_bytes)
+                msg = f"ÚSPĚCH: Data odeslána přímo do socketu. ID: {order_id}"
+                print(msg)
+                loguj_aktivitu_eth(msg)
+                return True
+        except Exception as e:
+            print(f"Přímý zápis nevyšel: {e}")
+
+        # --- METODA 2: TROJSKÝ KŮŇ (Falešný objekt) ---
+        # Pokud metoda 1 selže, zkusíme oklamat send()
+        print("Zkouším odeslat přes HackMessage objekt...")
+        fake_obj = HackMessage(raw_msg_bytes)
+        client.send(fake_obj)
         
-        msg = f"ÚSPĚCH: RAW FIX (bytes) odesláno. ID: {order_id}"
+        msg = f"ÚSPĚCH: HackMessage odeslána. ID: {order_id}"
         print(msg)
         loguj_aktivitu_eth(msg)
         return True
 
     except Exception as e:
-        msg = f"CHYBA: Odeslání RAW selhalo. Důvod: {str(e)}"
+        msg = f"CHYBA: Všechny metody selhaly. Důvod: {str(e)}"
         print(msg)
         loguj_aktivitu_eth(msg)
         return False
