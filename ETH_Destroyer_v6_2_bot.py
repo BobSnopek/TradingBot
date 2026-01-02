@@ -34,48 +34,52 @@ def create_fix_msg(msg_type, tags_dict):
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
     
-    # --- HARDCODED ÚDAJE (PŘÍMO ZDE) ---
+    # --- HARDCODED ÚDAJE (FTMO) ---
     host = "live-uk-eqx-01.p.c-trader.com"
     port = 5212
-    sender_comp_id = "live.ftmo.17032147"  # Dlouhé ID pro spojení
-    username_int = "17032147"            # Krátké ID pro přihlášení
+    sender_comp_id = "live.ftmo.17032147"  # Dlouhé ID
+    username_int = "17032147"            # Krátké ID (Username)
     target_comp_id = "cServer"
-    # !!! ZDE VYPLŇ SVÉ HESLO MÍSTO TOHO TEXTU V UVOZOVKÁCH !!!
-    password = "TraderHeslo@2026" 
+    password = "TraderHeslo@2026"        # Tvé heslo
     
     volume = 15
     if "BTC" in symbol_clean: volume = 2
     
-    print(f"--- PŘÍMÝ FIX SOCKET (Hardcoded): Odesílám {side} {symbol_clean} ---")
+    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
     
     try:
         context = ssl.create_default_context()
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
         
-        # LOGON
+        # LOGON (MsgType=A)
+        # Odstraněn tag 50 (QUOTE), který způsoboval RET_INVALID_DATA
         logon_tags = {
-            49: sender_comp_id, # Tag 49 = Dlouhé ID
+            49: sender_comp_id, 
             56: target_comp_id,
-            57: "TRADE",
-            50: "QUOTE",
+            57: "TRADE",        # Nutné pro port 5212
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
             108: "30",
-            553: username_int,  # Tag 553 = Krátké číslo
+            553: username_int,  # Pouze číslo
             554: password,
             141: "Y"
         }
         ssock.sendall(create_fix_msg("A", logon_tags))
         
         response = ssock.recv(4096).decode('ascii', errors='ignore')
+        
         if "35=A" in response and "58=" not in response:
-            print(f"DEBUG: Logon OK. (ID: {sender_comp_id})")
+            print(f"DEBUG: Logon OK! (Uživatel: {username_int})")
         else:
-            print(f"VAROVÁNÍ: Logon odpověď: {response}")
+            err_text = "Neznámá chyba"
+            if "58=" in response:
+                err_text = response.split("58=")[1].split("\x01")[0]
+            print(f"VAROVÁNÍ: Logon selhal: {err_text}")
+            print(f"RAW Response: {response}")
 
-        # ORDER
+        # ORDER (MsgType=D)
         order_id = f"BOB_{int(time.time())}"
         side_code = "1" if side.lower() == "buy" else "2"
         
@@ -83,7 +87,6 @@ def proved_obchod_fix(symbol, side):
             49: sender_comp_id,
             56: target_comp_id,
             57: "TRADE",
-            50: "QUOTE",
             34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             11: order_id,
@@ -100,13 +103,22 @@ def proved_obchod_fix(symbol, side):
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         ssock.close()
         
-        if "35=8" in response_order and "39=8" not in response_order:
-            msg = f"ÚSPĚCH: Obchod potvrzen! Detail: {response_order}"
-            print(msg)
-            loguj_aktivitu_eth(msg)
-            return True
+        if "35=8" in response_order:
+            if "39=8" not in response_order:
+                msg = f"ÚSPĚCH: Obchod potvrzen! Detail: {response_order}"
+                print(msg)
+                loguj_aktivitu_eth(msg)
+                return True
+            else:
+                err = "Zamítnuto"
+                if "58=" in response_order:
+                    err = response_order.split("58=")[1].split("\x01")[0]
+                msg = f"ZAMÍTNUTO: {err}"
+                print(msg)
+                loguj_aktivitu_eth(msg)
+                return False
         else:
-            msg = f"VÝSLEDEK: {response_order}"
+            msg = f"VÝSLEDEK NEJASNÝ: {response_order}"
             print(msg)
             loguj_aktivitu_eth(msg)
             return True
