@@ -22,6 +22,9 @@ jobs:
       run: |
         pip install yfinance pandas pandas_ta scikit-learn matplotlib seaborn twisted
 
+    - name: Spuštění Skeneru ID
+      run: python ID_Scanner.py
+      
     - name: Spuštění BTC Sniper v10.2
       run: python BTC_Sniper_v10_2_bot.py
 
