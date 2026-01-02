@@ -23,3 +23,4 @@
 [2026-01-02 14:45:04] Analýza ceny 89098.01 | AI Predikce: Long 23.5%, Short 19.1% -> NEČINNOST: Signál pod hranicí 51%
 [2026-01-02 14:49:11] Analýza ceny 89074.31 | AI Predikce: Long 19.9%, Short 22.7% -> NEČINNOST: Signál pod hranicí 51%
 [2026-01-02 14:57:17] Analýza ceny 89628.67 | AI Predikce: Long 31.9%, Short 27.1% -> NEČINNOST: Signál pod hranicí 51%
+[2026-01-02 15:00:27] Analýza ceny 89465.77 | AI Predikce: Long 30.7%, Short 30.5% -> NEČINNOST: Signál pod hranicí 51%
