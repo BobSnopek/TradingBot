@@ -21,7 +21,7 @@ def loguj_aktivitu_eth(zprava):
 
 def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
-    # Hlavička
+    # Hlavička (seřazeno podle cTrader specifikace)
     head_tags = ['35', '49', '56', '50', '57', '34', '52']
     head_str = ""
     head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 50, 57, 34, 52]}
@@ -50,60 +50,97 @@ def create_fix_msg(msg_type, tags_dict):
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
     
+    # ÚDAJE Z TVÉHO SCREENSHOTU
     host = "live-uk-eqx-01.p.c-trader.com"
-    
-    # --- ZMĚNA STRATEGIE: TESTUJEME DATA PORT 5211 ---
-    port = 5211 
-    
-    # Vracíme se k dlouhému ID (protože krátké bylo zamítnuto)
+    port = 5212
     sender_comp_id = "live.ftmo.17032147"
-    username_int = "17032147"
     target_comp_id = "cServer"
     
-    password = "CHeslo2026" 
+    # NOVÉ HESLO
+    password = "CHeslo2026"
+    username = "17032147" # Číslo účtu
     
-    print(f"--- TEST PŘIPOJENÍ NA DATOVÝ PORT (5211) ---")
+    volume = 15
+    if "BTC" in symbol_clean: volume = 2
+    
+    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
     
     try:
         context = ssl.create_default_context()
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
         
-        # LOGON PRO PORT 5211 (Vyžaduje TargetSubID=QUOTE)
+        # 1. LOGON (Podle screenshotu Trade Connection)
         logon_tags = {
             49: sender_comp_id, 
             56: target_comp_id,
-            57: "QUOTE",        # <--- Pro port 5211 musí být QUOTE
-            50: "QUOTE",        # SenderSubID často taky QUOTE
+            50: "TRADE",        # SenderSubID (Z SCREENSHOTU!)
+            57: "TRADE",        # TargetSubID (Standard pro trade session)
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
             108: "30",
-            553: username_int,
-            554: password,
+            553: username,      # Username
+            554: password,      # Password
             141: "Y"
         }
-        
-        print("Odesílám Logon na port 5211...")
         ssock.sendall(create_fix_msg("A", logon_tags))
         
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         
         if "35=A" in response and "58=" not in response:
-            msg = f"!!! SLÁVA !!! LOGON NA 5211 ÚSPĚŠNÝ! HESLO JE SPRÁVNĚ."
-            print(msg)
-            print(f"Server odpověděl: {response}")
-            loguj_aktivitu_eth(msg)
-            # Pokud toto projde, víme, že heslo platí. Obchodovat tu sice nejde, ale potvrdíme údaje.
-            return True
+            print(f"DEBUG: Logon ÚSPĚŠNÝ! Jdeme na to.")
         else:
             err = "Neznámá chyba"
             if "58=" in response:
                 err = response.split("58=")[1].split("\x01")[0]
-            msg = f"LOGON SELHAL I NA 5211: {err}"
-            print(msg)
+            print(f"VAROVÁNÍ: Logon selhal: {err}")
             print(f"RAW: {response}")
-            return False
+
+        # 2. ORDER
+        order_id = f"BOB_{int(time.time())}"
+        side_code = "1" if side.lower() == "buy" else "2"
+        
+        order_tags = {
+            49: sender_comp_id,
+            56: target_comp_id,
+            50: "TRADE",        # Musí být i zde
+            57: "TRADE",
+            34: 2,
+            52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+            11: order_id,
+            55: symbol_clean,
+            54: side_code,
+            38: str(int(volume)),
+            40: "1",
+            59: "0",
+            60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+        }
+        
+        ssock.sendall(create_fix_msg("D", order_tags))
+        time.sleep(2)
+        response_order = ssock.recv(4096).decode('ascii', errors='ignore')
+        ssock.close()
+        
+        if "35=8" in response_order:
+            if "39=8" not in response_order:
+                msg = f"ÚSPĚCH: Obchod potvrzen! {symbol_clean} {side}"
+                print(msg)
+                loguj_aktivitu_eth(msg)
+                return True
+            else:
+                err = "Zamítnuto"
+                if "58=" in response_order:
+                    err = response_order.split("58=")[1].split("\x01")[0]
+                msg = f"ZAMÍTNUTO: {err}"
+                print(msg)
+                loguj_aktivitu_eth(msg)
+                return False
+        else:
+            msg = f"VÝSLEDEK NEJASNÝ: {response_order}"
+            print(msg)
+            loguj_aktivitu_eth(msg)
+            return True
 
     except Exception as e:
         print(f"CHYBA: {e}")
