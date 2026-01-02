@@ -4,6 +4,7 @@ import numpy as np
 import pandas_ta as ta
 import os
 import datetime
+import time
 from ctrader_fix import *
 
 # --- KONFIGURACE ---
@@ -17,60 +18,69 @@ def loguj_aktivitu_eth(zprava):
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- ULTRA-ROBUSTNÍ FUNKCE PRO FIX API (SHERLOCK HOLMES) ---
+# --- OPRAVENÁ FUNKCE: RUČNÍ SESTAVENÍ FIX ZPRÁVY ---
 def proved_obchod_fix(symbol, side):
-    symbol = symbol.replace("-", "")
+    symbol_clean = symbol.replace("-", "").replace("/", "")
     host = os.getenv('FIX_HOST')
     port = int(os.getenv('FIX_PORT'))
     sender_id = os.getenv('FIX_SENDER_ID')
     target_id = os.getenv('FIX_TARGET_ID')
     password = os.getenv('FIX_PASSWORD')
     
-    volume = 15.0 if symbol == "ETHUSD" else 2.0 
+    # Objem (cTrader často vyžaduje objem v jednotkách, ne lotech, ale zkusíme loty * 100000 nebo nechat raw)
+    # Prozatím necháme raw hodnotu, pokud to cTrader bere jako "units", bude to malé, ale projde to.
+    # PRO FIX API: Obvykle se posílá Amount (Množství). 15 lotů = 15.
+    volume = 15.0 if "ETH" in symbol_clean else 2.0 
 
-    print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
+    print(f"--- FIX API: Odesílám {side} {symbol_clean} ({volume}) přes raw metodu 'send' ---")
     
     try:
         client = Client(host, port, sender_id, target_id, password)
         
-        # 1. ZJISTÍME, CO KLIENT UMÍ (Introspekce)
-        dostupne_metody = dir(client)
-        print(f"DEBUG: Nalezené metody klienta: {[m for m in dostupne_metody if 'send' in m or 'order' in m.lower()]}")
-
-        # 2. AUTOMATICKÝ VÝBĚR SPRÁVNÉ METODY
-        if 'send_new_order_single' in dostupne_metody:
-            print("Používám metodu: send_new_order_single")
-            client.send_new_order_single(symbol, side, volume)
-        elif 'sendOrder' in dostupne_metody:
-            print("Používám metodu: sendOrder")
-            client.sendOrder(symbol, side, volume)
-        elif 'send_market_order' in dostupne_metody:
-            print("Používám metodu: send_market_order")
-            client.send_market_order(symbol, side, volume)
-        elif 'send_order' in dostupne_metody:
-            print("Používám metodu: send_order")
-            client.send_order(symbol, side, volume)
-        else:
-            # Pokud nic nenajdeme, zkusíme to risknout se sendOrder (co kdyby)
-            # a vypíšeme kompletní tahák pro příští opravu
-            print("VAROVÁNÍ: Nenalezena standardní metoda. Zkouším fallback...")
-            print(f"!!! TAHÁK - VŠECHNY METODY KLIENTA: {dostupne_metody} !!!")
-            client.sendOrder(symbol, side, volume)
+        # 1. VYTVOŘENÍ FIX ZPRÁVY (Typ D = New Order Single)
+        # Předpokládáme, že knihovna exportuje třídu FixMessage nebo Message
+        try:
+            order = FixMessage() 
+        except NameError:
+            # Fallback, kdyby se jmenovala jinak (často jen Message)
+            order = Message()
+            
+        order.setMessageType("D") # D = NewOrderSingle
         
-        msg = f"ÚSPĚCH: FIX příkaz {side} {symbol} odeslán (objem: {volume})"
+        # 2. VYPLNĚNÍ POVINNÝCH POLÍ
+        # Tag 11: ClOrdID (Unikátní ID příkazu - použijeme čas)
+        order_id = f"BOB_{int(time.time())}"
+        order.setField(11, order_id)
+        
+        # Tag 55: Symbol (ETHUSD)
+        order.setField(55, symbol_clean)
+        
+        # Tag 54: Side (1 = Buy, 2 = Sell)
+        side_code = "1" if side.lower() == "buy" else "2"
+        order.setField(54, side_code)
+        
+        # Tag 38: OrderQty (Množství)
+        order.setField(38, str(volume))
+        
+        # Tag 40: OrdType (1 = Market)
+        order.setField(40, "1")
+        
+        # Tag 60: TransactTime (Čas transakce)
+        # Knihovna to často doplňuje sama, ale pro jistotu
+        transact_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+        order.setField(60, transact_time)
+
+        # 3. ODESLÁNÍ
+        client.send(order)
+        
+        msg = f"ÚSPĚCH: RAW FIX zpráva (Type D) odeslána. ID: {order_id}, {side} {symbol_clean} {volume}"
         print(msg)
         loguj_aktivitu_eth(msg)
         return True
 
     except Exception as e:
-        msg = f"CHYBA: FIX příkaz {side} selhal. Důvod: {str(e)}"
+        msg = f"CHYBA: Odeslání RAW zprávy selhalo. Důvod: {str(e)}"
         print(msg)
-        # Pokud to spadlo, vypíšeme ten seznam metod i do logu chyby, ať to vidíme
-        try:
-            tmp_client = Client(host, port, sender_id, target_id, password)
-            print(f"--- DIAGNOSTIKA CHYBY (Dostupné funkce): ---\n{dir(tmp_client)}\n--------------------------------")
-        except:
-            pass
         loguj_aktivitu_eth(msg)
         return False
 
@@ -99,13 +109,12 @@ df.loc[(df['ADX'] > 30) & (df['DMN'] > df['DMP']) & (df['EMA_FAST'] < df['EMA_SL
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] > df['EMA_SLOW']) & (df['RSI'] > 58), 'Signal'] = -1
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] < df['EMA_SLOW']) & (df['RSI'] < 42), 'Signal'] = 1
 
-# 4. SIMULACE HISTORIE (Trailing Stop-Loss logika)
+# 4. SIMULACE HISTORIE
 def run_trailing_sim_eth(data):
     balance = 1000.0
     with open('vypis_obchodu_ETH_TSL.txt', 'w', encoding='utf-8') as f:
         f.write("DATUM | TYP | VSTUP | VYSTUP (TSL) | ZISK USD | BALANCE\n")
         f.write("-" * 75 + "\n")
-        
         for i in range(1, len(data) - MAX_HOLD):
             sig = data['Signal'].iloc[i]
             if sig != 0 and sig != data['Signal'].iloc[i-1]:
@@ -131,7 +140,6 @@ def run_trailing_sim_eth(data):
                             res = (entry - sl) / entry
                             break
                         res = (entry - curr_p) / entry
-
                 pnl_usd = (balance * RISK_PCT) * (res * LEVERAGE - 0.0012)
                 balance += pnl_usd
                 typ = "LONG " if sig == 1 else "SHORT"
@@ -140,7 +148,7 @@ def run_trailing_sim_eth(data):
 
 final_bal = run_trailing_sim_eth(df)
 
-# 5. LOGOVÁNÍ AKTUÁLNÍHO STAVU
+# 5. LOGOVÁNÍ
 posledni_radek = df.iloc[-1]
 cena = posledni_radek['Close']
 adx_val = posledni_radek['ADX']
@@ -149,7 +157,7 @@ rsi_val = posledni_radek['RSI']
 status_rozbor = f"Analýza ceny {cena:.2f} | ADX: {adx_val:.2f}, RSI: {rsi_val:.2f}"
 print(f"--- {status_rozbor} ---")
 
-# 6. REÁLNÉ ROZHODNUTÍ A ODESLÁNÍ
+# 6. REÁLNÉ ROZHODNUTÍ
 signal_dnes = posledni_radek['Signal']
 if signal_dnes != 0:
     smer = "BUY" if signal_dnes == 1 else "SELL"
