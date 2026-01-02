@@ -52,3 +52,4 @@
 [2026-01-02 19:14:48] ÚSPĚCH: Otevřeno za 3111.65 (z grafu - záloha)
 [2026-01-02 19:14:50] Ochrana odeslána: SL 3064.97, TP 3205.0
 [2026-01-02 20:23:27] IGNOROVÁNO: Signál 1 se nezměnil.
+[2026-01-02 21:16:45] IGNOROVÁNO: Signál 1 se nezměnil.
