@@ -46,3 +46,5 @@
 [2026-01-02 15:15:51] NEJISTÝ VÝSLEDEK: Data odeslána, odpověď: 
 [2026-01-02 15:19:29] Analýza ceny 3073.89 | ADX: 58.79, RSI: 73.75 -> AKCE: BUY
 [2026-01-02 15:19:31] NEJISTÝ VÝSLEDEK: Odpověď serveru: 
+[2026-01-02 15:22:39] Analýza ceny 3069.25 | ADX: 58.79, RSI: 70.97 -> AKCE: BUY
+[2026-01-02 15:22:41] NEJISTÝ VÝSLEDEK: Odpověď serveru: 
