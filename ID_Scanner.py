@@ -36,7 +36,7 @@ def najdi_vsechna_id():
     sender_comp_id = "live.ftmo.17032147"
     username_int = "17032147"
     target_comp_id = "cServer"
-    password = "CTrader2026"
+    password = "CHeslo2026"
     
     print(f"--- PŘIPOJUJI SE NA DATOVÝ SERVER (5211) ---")
     
