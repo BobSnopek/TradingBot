@@ -4,6 +4,7 @@ import numpy as np
 import pandas_ta as ta
 import os
 import datetime
+import time
 from sklearn.ensemble import RandomForestClassifier
 from ctrader_fix import *
 
@@ -18,9 +19,9 @@ def loguj_aktivitu(zprava):
     with open('BTC_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- OPRAVENÁ FUNKCE PRO FIX API ---
+# --- OPRAVENÁ FUNKCE: RUČNÍ SESTAVENÍ FIX ZPRÁVY ---
 def proved_obchod_fix(symbol, side):
-    symbol = symbol.replace("-", "")
+    symbol_clean = symbol.replace("-", "").replace("/", "")
     host = os.getenv('FIX_HOST')
     port = int(os.getenv('FIX_PORT'))
     sender_id = os.getenv('FIX_SENDER_ID')
@@ -30,33 +31,52 @@ def proved_obchod_fix(symbol, side):
     # 2.0 loty pro BTC na tvém 200k účtu
     volume = 2.0 
 
-    print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
+    print(f"--- FIX API: Odesílám {side} {symbol_clean} ({volume}) přes raw metodu 'send' ---")
 
     try:
         client = Client(host, port, sender_id, target_id, password)
-        # OPRAVA: Primárně zkoušíme send_new_order_single (který funguje na GitHubu)
-        client.send_new_order_single(symbol, side, volume)
         
-        msg = f"ÚSPĚCH: FIX příkaz {side} {symbol} odeslán (objem: {volume})"
+        # 1. VYTVOŘENÍ FIX ZPRÁVY (Typ D = New Order Single)
+        try:
+            order = FixMessage() 
+        except NameError:
+            # Fallback, kdyby se třída jmenovala jinak (často jen Message)
+            order = Message()
+            
+        order.setMessageType("D") # D = NewOrderSingle
+        
+        # 2. VYPLNĚNÍ POVINNÝCH POLÍ
+        # Tag 11: ClOrdID (Unikátní ID příkazu - čas)
+        order_id = f"BOB_BTC_{int(time.time())}"
+        order.setField(11, order_id)
+        
+        # Tag 55: Symbol (BTCUSD)
+        order.setField(55, symbol_clean)
+        
+        # Tag 54: Side (1 = Buy, 2 = Sell)
+        side_code = "1" if side.lower() == "buy" else "2"
+        order.setField(54, side_code)
+        
+        # Tag 38: OrderQty (Množství)
+        order.setField(38, str(volume))
+        
+        # Tag 40: OrdType (1 = Market)
+        order.setField(40, "1")
+        
+        # Tag 60: TransactTime
+        transact_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+        order.setField(60, transact_time)
+
+        # 3. ODESLÁNÍ
+        client.send(order)
+        
+        msg = f"ÚSPĚCH: RAW FIX zpráva (Type D) odeslána. ID: {order_id}, {side} {symbol_clean} {volume}"
         print(msg)
         loguj_aktivitu(msg)
         return True
-    except AttributeError:
-        # Záchranná brzda pro starší verze knihovny
-        try:
-            print("Zkouším záložní metodu odeslání (sendOrder)...")
-            client.sendOrder(symbol, side, volume)
-            msg = f"ÚSPĚCH (Fallback): FIX příkaz {side} {symbol} odeslán."
-            print(msg)
-            loguj_aktivitu(msg)
-            return True
-        except Exception as e:
-            msg = f"CHYBA (Fallback selhal): {str(e)}"
-            print(msg)
-            loguj_aktivitu(msg)
-            return False
+
     except Exception as e:
-        msg = f"CHYBA: FIX příkaz {side} selhal. Důvod: {str(e)}"
+        msg = f"CHYBA: Odeslání RAW zprávy selhalo. Důvod: {str(e)}"
         print(msg)
         loguj_aktivitu(msg)
         return False
