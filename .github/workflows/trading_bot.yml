@@ -1,4 +1,4 @@
-name: Agresivní AI Trading (Hardcoded)
+name: Agresivní AI Trading (Final)
 
 on:
   schedule:
@@ -16,7 +16,7 @@ jobs:
     - name: Nastavení Pythonu
       uses: actions/setup-python@v2
       with:
-        python-version: '3.12'  # Vracíme se na moderní verzi
+        python-version: '3.12'
 
     - name: Instalace knihoven
       run: |
