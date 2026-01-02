@@ -9,8 +9,8 @@ import ssl
 import socket
 
 # --- KONFIGURACE OCHRANY ---
-SL_PCT = 0.015  # Stop Loss 1.5% (Pokud cena klesne o 1.5%, prodáváme)
-TP_PCT = 0.030  # Take Profit 3.0% (Pokud cena stoupne o 3%, vybíráme zisk)
+SL_PCT = 0.015  # Stop Loss 1.5%
+TP_PCT = 0.030  # Take Profit 3.0%
 RISK_PCT = 0.20
 LEVERAGE = 3
 
@@ -47,7 +47,6 @@ def create_fix_msg(msg_type, tags_dict):
     return msg_final.encode('ascii')
 
 def parse_price_from_response(response):
-    """Vytáhne cenu (Tag 6 - AvgPx) z odpovědi serveru."""
     try:
         if "6=" in response:
             parts = response.split("\x01")
@@ -91,9 +90,9 @@ def proved_obchod_a_zajisti(symbol, side):
             print("CHYBA: Logon selhal.")
             return False
 
-        # 2. MARKET ORDER (Vstup do pozice)
+        # 2. MARKET ORDER
         order_id = f"BOB_{int(time.time())}"
-        side_code = "1" if side.lower() == "buy" else "2" # 1=Buy, 2=Sell
+        side_code = "1" if side.lower() == "buy" else "2"
         
         order_tags = {
             49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
@@ -102,67 +101,54 @@ def proved_obchod_a_zajisti(symbol, side):
             55: fix_symbol_id,
             54: side_code,
             38: str(int(volume)),
-            40: "1",     # Market
-            59: "0",     # Day
-            60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+            40: "1", 59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         }
         
         ssock.sendall(create_fix_msg("D", order_tags))
         time.sleep(1)
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         
-        # Kontrola úspěchu
         if "35=8" in response_order and "39=8" not in response_order:
             entry_price = parse_price_from_response(response_order)
             msg = f"ÚSPĚCH: Nakoupeno za {entry_price if entry_price else 'Neznámo'}"
             print(msg)
             loguj_aktivitu_eth(msg)
             
-            # 3. ZAJIŠTĚNÍ (STOP LOSS a TAKE PROFIT)
+            # 3. ZAJIŠTĚNÍ
             if entry_price:
-                # Výpočet cen
                 if side.lower() == "buy":
                     sl_price = round(entry_price * (1 - SL_PCT), 2)
                     tp_price = round(entry_price * (1 + TP_PCT), 2)
-                    sl_side = "2" # Sell Stop
-                    tp_side = "2" # Sell Limit
-                else: # Sell
+                    sl_side = "2"
+                    tp_side = "2"
+                else: 
                     sl_price = round(entry_price * (1 + SL_PCT), 2)
                     tp_price = round(entry_price * (1 - TP_PCT), 2)
-                    sl_side = "1" # Buy Stop
-                    tp_side = "1" # Buy Limit
+                    sl_side = "1"
+                    tp_side = "1"
 
-                print(f"--- NASTAVUJI OCHRANU: SL={sl_price}, TP={tp_price} ---")
+                print(f"--- OCHRANA: SL={sl_price}, TP={tp_price} ---")
                 
-                # A) STOP LOSS ORDER (Type 3 = Stop Order)
+                # SL
                 sl_tags = {
                     49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
                     34: 3, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
-                    11: f"SL_{int(time.time())}",
-                    55: fix_symbol_id,
-                    54: sl_side,       # Opačný směr
-                    38: str(int(volume)),
-                    40: "3",           # STOP ORDER
-                    99: str(sl_price), # Stop Price
+                    11: f"SL_{int(time.time())}", 55: fix_symbol_id, 54: sl_side,
+                    38: str(int(volume)), 40: "3", 99: str(sl_price),
                     59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
                 }
                 ssock.sendall(create_fix_msg("D", sl_tags))
                 time.sleep(0.5)
                 
-                # B) TAKE PROFIT ORDER (Type 2 = Limit Order)
+                # TP
                 tp_tags = {
                     49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
                     34: 4, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
-                    11: f"TP_{int(time.time())}",
-                    55: fix_symbol_id,
-                    54: tp_side,       # Opačný směr
-                    38: str(int(volume)),
-                    40: "2",           # LIMIT ORDER
-                    44: str(tp_price), # Limit Price
+                    11: f"TP_{int(time.time())}", 55: fix_symbol_id, 54: tp_side,
+                    38: str(int(volume)), 40: "2", 44: str(tp_price),
                     59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
                 }
                 ssock.sendall(create_fix_msg("D", tp_tags))
-                print("Ochranné příkazy odeslány.")
                 loguj_aktivitu_eth(f"Zajištěno SL: {sl_price}, TP: {tp_price}")
 
             return True
@@ -199,9 +185,14 @@ df.loc[(df['ADX'] > 30) & (df['DMN'] > df['DMP']) & (df['EMA_FAST'] < df['EMA_SL
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] > df['EMA_SLOW']) & (df['RSI'] > 58), 'Signal'] = -1
 df.loc[(df['ADX'] <= 30) & (df['EMA_FAST'] < df['EMA_SLOW']) & (df['RSI'] < 42), 'Signal'] = 1
 
-# 4. SIMULACE
+# 4. SIMULACE (Opraveno: definice proměnných uvnitř)
 def run_trailing_sim_eth(data):
     balance = 1000.0
+    # --- OPRAVA: Definujeme konstanty přímo zde ---
+    MAX_HOLD = 12
+    TRAIL_PCT = 0.012
+    # ----------------------------------------------
+    
     with open('vypis_obchodu_ETH_TSL.txt', 'w', encoding='utf-8') as f:
         f.write("DATUM | TYP | VSTUP | VYSTUP (TSL) | ZISK USD | BALANCE\n")
         f.write("-" * 75 + "\n")
