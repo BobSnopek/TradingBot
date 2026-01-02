@@ -18,6 +18,7 @@ def loguj_aktivitu(zprava):
     with open('BTC_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
+# --- OPRAVENÁ FUNKCE PRO FIX API ---
 def proved_obchod_fix(symbol, side):
     symbol = symbol.replace("-", "")
     host = os.getenv('FIX_HOST')
@@ -29,13 +30,31 @@ def proved_obchod_fix(symbol, side):
     # 2.0 loty pro BTC na tvém 200k účtu
     volume = 2.0 
 
+    print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
+
     try:
         client = Client(host, port, sender_id, target_id, password)
-        client.sendOrder(symbol, side, volume)
+        # OPRAVA: Primárně zkoušíme send_new_order_single (který funguje na GitHubu)
+        client.send_new_order_single(symbol, side, volume)
+        
         msg = f"ÚSPĚCH: FIX příkaz {side} {symbol} odeslán (objem: {volume})"
         print(msg)
         loguj_aktivitu(msg)
         return True
+    except AttributeError:
+        # Záchranná brzda pro starší verze knihovny
+        try:
+            print("Zkouším záložní metodu odeslání (sendOrder)...")
+            client.sendOrder(symbol, side, volume)
+            msg = f"ÚSPĚCH (Fallback): FIX příkaz {side} {symbol} odeslán."
+            print(msg)
+            loguj_aktivitu(msg)
+            return True
+        except Exception as e:
+            msg = f"CHYBA (Fallback selhal): {str(e)}"
+            print(msg)
+            loguj_aktivitu(msg)
+            return False
     except Exception as e:
         msg = f"CHYBA: FIX příkaz {side} selhal. Důvod: {str(e)}"
         print(msg)
