@@ -15,6 +15,7 @@ RISK_PCT = 0.20
 LEVERAGE = 3
 
 def loguj_aktivitu_eth(zprava):
+    # Oprava času pro logování
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
@@ -23,6 +24,7 @@ def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
     head_tags = ['35', '49', '56', '50', '57', '34', '52']
     head_str = ""
+    # Seřadíme hlavičku
     head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 50, 57, 34, 52]}
     head_data[35] = msg_type
     
@@ -57,6 +59,22 @@ def parse_price_from_response(response):
         return None
     return None
 
+def parse_error_reason(response):
+    """Vytáhne text chyby (Tag 58) z FIX zprávy, pokud existuje."""
+    try:
+        if "58=" in response:
+            parts = response.split("\x01")
+            for p in parts:
+                if p.startswith("58="):
+                    return p.split("=")[1]
+    except:
+        return "Neznámá chyba"
+    return ""
+
+def get_utc_timestamp():
+    """Vrací aktuální UTC čas ve formátu pro FIX protokol."""
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+
 def proved_obchod_a_zajisti(symbol, side, current_market_price):
     # --- ÚDAJE ---
     host = "live-uk-eqx-01.p.c-trader.com"
@@ -79,14 +97,14 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
         # 1. LOGON
         logon_tags = {
             49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
-            34: 1, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+            34: 1, 52: get_utc_timestamp(),
             98: "0", 108: "30", 553: username, 554: password, 141: "Y"
         }
         ssock.sendall(create_fix_msg("A", logon_tags))
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         
         if "35=A" not in response:
-            print("CHYBA: Logon selhal.")
+            print(f"CHYBA: Logon selhal. Odpověď: {response}")
             return False
 
         # 2. MARKET ORDER
@@ -95,19 +113,21 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
         
         order_tags = {
             49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
-            34: 2, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+            34: 2, 52: get_utc_timestamp(),
             11: order_id,
             55: fix_symbol_id,
             54: side_code,
             38: str(int(volume)),
-            40: "1", 59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+            40: "1", 59: "0", 60: get_utc_timestamp()
         }
         
         ssock.sendall(create_fix_msg("D", order_tags))
-        time.sleep(1)
+        # Krátká pauza stačí, ale recv je klíčový
+        time.sleep(0.5) 
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         
-        if "35=8" in response_order and "39=8" not in response_order:
+        # Kontrola, zda byl příkaz přijat (35=8 je ExecutionReport)
+        if "35=8" in response_order and "39=8" not in response_order: # 39=8 je Rejected
             # Zkusíme zjistit cenu ze serveru
             filled_price = parse_price_from_response(response_order)
             
@@ -123,41 +143,59 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
             if side.lower() == "buy":
                 sl_price = round(final_price * (1 - SL_PCT), 2)
                 tp_price = round(final_price * (1 + TP_PCT), 2)
-                sl_side = "2"
-                tp_side = "2"
+                sl_side = "2" # Prodej
+                tp_side = "2" # Prodej
             else: 
                 sl_price = round(final_price * (1 + SL_PCT), 2)
                 tp_price = round(final_price * (1 - TP_PCT), 2)
-                sl_side = "1"
-                tp_side = "1"
+                sl_side = "1" # Nákup
+                tp_side = "1" # Nákup
 
             print(f"--- OCHRANA: SL={sl_price}, TP={tp_price} ---")
             
-            # SL
+            # --- ODESLÁNÍ SL ---
             sl_tags = {
                 49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
-                34: 3, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+                34: 3, 52: get_utc_timestamp(),
                 11: f"SL_{int(time.time())}", 55: fix_symbol_id, 54: sl_side,
-                38: str(int(volume)), 40: "3", 99: str(sl_price),
-                59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+                38: str(int(volume)), 40: "3", 99: f"{sl_price:.2f}", # Formát na 2 desetinná místa
+                59: "0", 60: get_utc_timestamp()
             }
             ssock.sendall(create_fix_msg("D", sl_tags))
-            time.sleep(0.5)
+            time.sleep(0.2)
+            response_sl = ssock.recv(4096).decode('ascii', errors='ignore')
             
-            # TP
+            if "35=8" in response_sl and "39=8" not in response_sl:
+                print("-> SL nastaven OK")
+            else:
+                err = parse_error_reason(response_sl)
+                print(f"-> CHYBA SL: Server odmítl příkaz. Důvod: {err}")
+                loguj_aktivitu_eth(f"CHYBA SL: {err}")
+
+            # --- ODESLÁNÍ TP ---
             tp_tags = {
                 49: sender_comp_id, 56: target_comp_id, 50: "TRADE", 57: "TRADE",
-                34: 4, 52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+                34: 4, 52: get_utc_timestamp(),
                 11: f"TP_{int(time.time())}", 55: fix_symbol_id, 54: tp_side,
-                38: str(int(volume)), 40: "2", 44: str(tp_price),
-                59: "0", 60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+                38: str(int(volume)), 40: "2", 44: f"{tp_price:.2f}", # Formát na 2 desetinná místa
+                59: "0", 60: get_utc_timestamp()
             }
             ssock.sendall(create_fix_msg("D", tp_tags))
-            loguj_aktivitu_eth(f"Zajištěno SL: {sl_price}, TP: {tp_price}")
+            time.sleep(0.2)
+            response_tp = ssock.recv(4096).decode('ascii', errors='ignore')
 
+            if "35=8" in response_tp and "39=8" not in response_tp:
+                print("-> TP nastaven OK")
+            else:
+                err = parse_error_reason(response_tp)
+                print(f"-> CHYBA TP: Server odmítl příkaz. Důvod: {err}")
+                loguj_aktivitu_eth(f"CHYBA TP: {err}")
+
+            loguj_aktivitu_eth(f"Kalkulace ochrany: SL: {sl_price}, TP: {tp_price}")
             return True
         else:
-            print(f"CHYBA PŘÍKAZU: {response_order}")
+            err = parse_error_reason(response_order)
+            print(f"CHYBA PŘÍKAZU (Vstup): {err}")
             return False
 
         ssock.close()
