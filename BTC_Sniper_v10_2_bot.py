@@ -5,111 +5,128 @@ import pandas_ta as ta
 import os
 import datetime
 import time
+import ssl
+import socket
 from sklearn.ensemble import RandomForestClassifier
-from ctrader_fix import *
 
 # --- KONFIGURACE ---
-TRAIL_PCT = 0.008  # 0.8% Trailing Stop-Loss
-MAX_HOLD = 8       # Maximální doba držení v hodinách
-RISK_PCT = 0.25    # 25% marže z virtuálního zůstatku pro simulaci
-LEVERAGE = 5       # Páka pro simulaci
+TRAIL_PCT = 0.008
+MAX_HOLD = 8
+RISK_PCT = 0.25
+LEVERAGE = 5
 
 def loguj_aktivitu(zprava):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open('BTC_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- POMOCNÁ FUNKCE: RUČNÍ VÝROBA FIX ZPRÁVY (MACGYVER STYLE) ---
-def create_fix_message(msg_type, pairs):
-    """
-    Sestaví RAW FIX zprávu bez potřeby externí knihovny.
-    Počítá správně BodyLength (tag 9) a Checksum (tag 10).
-    """
-    s = "\x01" # SOH oddělovač
-    
-    # Sestavení těla zprávy
+def create_fix_msg(msg_type, tags_dict):
+    s = "\x01"
     body = ""
-    for tag, value in pairs.items():
-        body += f"{tag}={value}{s}"
-        
-    # Výpočet délky (tag 9)
-    # BodyLength = délka od tagu 35 (včetně) do tagu 10 (nevčetně)
-    temp_body_for_len = f"35={msg_type}{s}{body}"
-    length = len(temp_body_for_len)
-    
-    # Sestavení zprávy před checksumem: 8=...|9=...|35=...|...body...|
-    pre_checksum_msg = f"8=FIX.4.4{s}9={length}{s}{temp_body_for_len}"
-    
-    # Výpočet Checksum (tag 10)
-    checksum = sum(pre_checksum_msg.encode('ascii')) % 256
-    checksum_str = f"{checksum:03d}" 
-    
-    final_msg = f"{pre_checksum_msg}10={checksum_str}{s}"
-    return final_msg.encode('ascii') # Vracíme jako BYTES
+    for tag, val in tags_dict.items():
+        body += f"{tag}={val}{s}"
+    temp_head = f"35={msg_type}{s}{body}"
+    length = len(temp_head)
+    msg_str = f"8=FIX.4.4{s}9={length}{s}{temp_head}"
+    checksum = sum(msg_str.encode('ascii')) % 256
+    msg_final = f"{msg_str}10={checksum:03d}{s}"
+    return msg_final.encode('ascii')
 
-# --- OPRAVENÁ FUNKCE PRO FIX API ---
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
-    host = os.getenv('FIX_HOST')
-    port = int(os.getenv('FIX_PORT'))
-    sender_id = os.getenv('FIX_SENDER_ID')
-    target_id = os.getenv('FIX_TARGET_ID')
-    password = os.getenv('FIX_PASSWORD')
     
-    # 2.0 loty pro BTC na tvém 200k účtu
-    volume = 2.0 
-
-    print(f"--- FIX API: Odesílám {side} {symbol_clean} ({volume}) přes MANUAL RAW ---")
-
+    # --- HARDCODED ÚDAJE (PŘÍMO ZDE) ---
+    host = "live-uk-eqx-01.p.c-trader.com"
+    port = 5212
+    sender_comp_id = "live.ftmo.17032147"
+    username_int = "17032147"
+    target_comp_id = "cServer"
+    # !!! ZDE VYPLŇ SVÉ HESLO MÍSTO TOHO TEXTU V UVOZOVKÁCH !!!
+    password = "TraderHeslo@2026" 
+    
+    volume = 2
+    
+    print(f"--- PŘÍMÝ FIX SOCKET (Hardcoded): Odesílám {side} {symbol_clean} ---")
+    
     try:
-        client = Client(host, port, sender_id, target_id, password)
+        context = ssl.create_default_context()
+        sock = socket.create_connection((host, port))
+        ssock = context.wrap_socket(sock, server_hostname=host)
         
-        # PŘÍPRAVA DAT
-        order_id = f"BOB_BTC_{int(time.time())}"
-        transact_time = datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
+        # LOGON
+        logon_tags = {
+            49: sender_comp_id,
+            56: target_comp_id,
+            57: "TRADE",
+            50: "QUOTE",
+            34: 1,
+            52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+            98: "0",
+            108: "30",
+            553: username_int,
+            554: password,
+            141: "Y"
+        }
+        ssock.sendall(create_fix_msg("A", logon_tags))
+        
+        response = ssock.recv(4096).decode('ascii', errors='ignore')
+        if "35=A" in response and "58=" not in response:
+            print(f"DEBUG: Logon OK. (ID: {sender_comp_id})")
+        else:
+            print(f"VAROVÁNÍ: Logon odpověď: {response}")
+
+        # ORDER
+        order_id = f"BOB_{int(time.time())}"
         side_code = "1" if side.lower() == "buy" else "2"
         
-        # Vytvoříme slovník tagů pro NewOrderSingle (D)
-        tags = {
-            11: order_id,       # ClOrdID
-            55: symbol_clean,   # Symbol
-            54: side_code,      # Side
-            38: str(volume),    # OrderQty
-            40: "1",            # OrdType = Market
-            60: transact_time,  # TransactTime
-            59: "0"             # TimeInForce = Day
+        order_tags = {
+            49: sender_comp_id,
+            56: target_comp_id,
+            57: "TRADE",
+            50: "QUOTE",
+            34: 2,
+            52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
+            11: order_id,
+            55: symbol_clean,
+            54: side_code,
+            38: str(int(volume)),
+            40: "1",
+            59: "0",
+            60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
         }
         
-        # ODESLÁNÍ RAW BYTES
-        raw_msg = create_fix_message("D", tags)
-        print(f"DEBUG: Odesílám raw bytes: {raw_msg}")
+        ssock.sendall(create_fix_msg("D", order_tags))
+        time.sleep(2)
+        response_order = ssock.recv(4096).decode('ascii', errors='ignore')
+        ssock.close()
         
-        client.send(raw_msg)
-        
-        msg = f"ÚSPĚCH: RAW FIX (bytes) odesláno. ID: {order_id}"
-        print(msg)
-        loguj_aktivitu(msg)
-        return True
+        if "35=8" in response_order and "39=8" not in response_order:
+            msg = f"ÚSPĚCH: Obchod potvrzen! Detail: {response_order}"
+            print(msg)
+            loguj_aktivitu(msg)
+            return True
+        else:
+            msg = f"VÝSLEDEK: {response_order}"
+            print(msg)
+            loguj_aktivitu(msg)
+            return True
 
     except Exception as e:
-        msg = f"CHYBA: Odeslání RAW selhalo. Důvod: {str(e)}"
-        print(msg)
-        loguj_aktivitu(msg)
+        print(f"CHYBA: {e}")
         return False
 
-# 1. DATA A INDIKÁTORY
+# 1. DATA
 symbol = 'BTC-USD'
 df_raw = yf.download(symbol, period='720d', interval='1h', auto_adjust=True)
 if isinstance(df_raw.columns, pd.MultiIndex):
     df_raw.columns = df_raw.columns.get_level_values(0)
 df = df_raw.copy()
-
 df['RSI'] = ta.rsi(df['Close'], length=7)
 macd = ta.macd(df['Close'], fast=8, slow=21, signal=5)
 macd_h_col = [c for c in macd.columns if 'h' in c.lower()][0]
 df['MACD_H'] = macd[macd_h_col]
 
-# 2. TRÉNOVÁNÍ AI MODELU (Data z konce roku 2024)
+# 2. TRÉNINK
 train_data = yf.download(symbol, start="2024-10-01", end="2025-01-01", interval='1h', auto_adjust=True)
 if isinstance(train_data.columns, pd.MultiIndex):
     train_data.columns = train_data.columns.get_level_values(0)
@@ -121,19 +138,18 @@ td['MACD_H'] = td_macd[td_macd_h_col]
 td['Target_L'] = np.where(td['Close'].shift(-2) > td['Close'] * 1.003, 1, 0)
 td['Target_S'] = np.where(td['Close'].shift(-2) < td['Close'] * 0.997, 1, 0)
 td = td.dropna()
-
 features = ['RSI', 'MACD_H']
 model_l = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42).fit(td[features], td['Target_L'])
 model_s = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42).fit(td[features], td['Target_S'])
 
-# 3. PREDIKCE A SIGNÁL
+# 3. PREDIKCE
 df['Prob_L'] = model_l.predict_proba(df[features])[:, 1]
 df['Prob_S'] = model_s.predict_proba(df[features])[:, 1]
 df['Signal'] = 0
 df.loc[df['Prob_L'] > 0.51, 'Signal'] = 1
 df.loc[df['Prob_S'] > 0.51, 'Signal'] = -1
 
-# 4. SIMULACE HISTORIE (Trailing Stop-Loss logika)
+# 4. SIMULACE
 def run_trailing_sim(data):
     balance = 1000.0
     with open('vypis_obchodu_TSL.txt', 'w') as f:
@@ -169,25 +185,17 @@ def run_trailing_sim(data):
                 typ = "LONG " if sig == 1 else "SHORT"
                 f.write(f"{data.index[i]} | {typ} | {entry:8.2f} | {entry*(1+res):8.2f} | {pnl_usd:8.2f} | {balance:8.2f}\n")
     return balance
-
 final_bal = run_trailing_sim(df)
 
-# 5. REÁLNÁ KONTROLA A AKCE
+# 5. EXECUTION
 posledni_radek = df.iloc[-1]
-prob_l = posledni_radek['Prob_L'] * 100
-prob_s = posledni_radek['Prob_S'] * 100
-cena = posledni_radek['Close']
-
-status_rozbor = f"Analýza ceny {cena:.2f} | AI Predikce: Long {prob_l:.1f}%, Short {prob_s:.1f}%"
-print(status_rozbor)
-
 signal_dnes = posledni_radek['Signal']
+print(f"--- Analýza {symbol} ---")
 if signal_dnes != 0:
     smer = "BUY" if signal_dnes == 1 else "SELL"
-    loguj_aktivitu(f"{status_rozbor} -> AKCE: {smer}")
+    loguj_aktivitu(f"AKCE: {smer}")
     proved_obchod_fix(symbol, smer)
 else:
-    loguj_aktivitu(f"{status_rozbor} -> NEČINNOST: Signál pod hranicí 51%")
-    print("Aktuálně žádný signál k reálnému obchodu.")
-
-print(f"Simulace hotova. Teoretický zůstatek: {final_bal:.2f} USD")
+    loguj_aktivitu("NEČINNOST")
+    print("Žádný signál.")
+print(f"Simulace hotova.")
