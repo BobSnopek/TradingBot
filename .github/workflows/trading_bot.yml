@@ -18,14 +18,23 @@ jobs:
       with:
         python-version: '3.12'
 
+    # --- NOVINKA: CACHOVÁNÍ KNIHOVEN (Zrychlí to!) ---
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-v1
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
     - name: Instalace knihoven
       run: |
         pip install yfinance pandas pandas_ta scikit-learn matplotlib seaborn twisted
-      
+
     - name: Spuštění BTC Sniper v10.2
       run: python BTC_Sniper_v10_2_bot.py
 
-    - name: Spuštění ETH Destroyer v6.2
+    - name: Spuštění ETH Destroyer v7.1
       run: python ETH_Destroyer_v6_2_bot.py
       
     - name: Nahrání logů
