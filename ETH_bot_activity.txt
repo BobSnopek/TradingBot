@@ -14,3 +14,5 @@
 [2026-01-02 07:24:40] Analýza ceny 3024.65 | ADX: 42.54, RSI: 71.11 -> NEČINNOST: Žádná technická shoda
 [2026-01-02 08:30:38] Analýza ceny 3023.62 | ADX: 44.27, RSI: 66.84 -> AKCE: BUY
 [2026-01-02 08:30:38] CHYBA: FIX příkaz BUY selhal. Důvod: 'Client' object has no attribute 'sendOrder'
+[2026-01-02 09:25:55] Analýza ceny 3037.03 | ADX: 46.65, RSI: 71.55 -> AKCE: BUY
+[2026-01-02 09:25:55] CHYBA: FIX příkaz BUY selhal. Důvod: 'Client' object has no attribute 'sendOrder'
