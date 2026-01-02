@@ -17,7 +17,7 @@ def loguj_aktivitu_eth(zprava):
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# --- OPRAVENÁ FUNKCE PRO FIX API ---
+# --- ULTRA-ROBUSTNÍ FUNKCE PRO FIX API (SHERLOCK HOLMES) ---
 def proved_obchod_fix(symbol, side):
     symbol = symbol.replace("-", "")
     host = os.getenv('FIX_HOST')
@@ -32,29 +32,45 @@ def proved_obchod_fix(symbol, side):
     
     try:
         client = Client(host, port, sender_id, target_id, password)
-        # OPRAVA: Použití správné metody send_new_order_single
-        client.send_new_order_single(symbol, side, volume)
+        
+        # 1. ZJISTÍME, CO KLIENT UMÍ (Introspekce)
+        dostupne_metody = dir(client)
+        print(f"DEBUG: Nalezené metody klienta: {[m for m in dostupne_metody if 'send' in m or 'order' in m.lower()]}")
+
+        # 2. AUTOMATICKÝ VÝBĚR SPRÁVNÉ METODY
+        if 'send_new_order_single' in dostupne_metody:
+            print("Používám metodu: send_new_order_single")
+            client.send_new_order_single(symbol, side, volume)
+        elif 'sendOrder' in dostupne_metody:
+            print("Používám metodu: sendOrder")
+            client.sendOrder(symbol, side, volume)
+        elif 'send_market_order' in dostupne_metody:
+            print("Používám metodu: send_market_order")
+            client.send_market_order(symbol, side, volume)
+        elif 'send_order' in dostupne_metody:
+            print("Používám metodu: send_order")
+            client.send_order(symbol, side, volume)
+        else:
+            # Pokud nic nenajdeme, zkusíme to risknout se sendOrder (co kdyby)
+            # a vypíšeme kompletní tahák pro příští opravu
+            print("VAROVÁNÍ: Nenalezena standardní metoda. Zkouším fallback...")
+            print(f"!!! TAHÁK - VŠECHNY METODY KLIENTA: {dostupne_metody} !!!")
+            client.sendOrder(symbol, side, volume)
         
         msg = f"ÚSPĚCH: FIX příkaz {side} {symbol} odeslán (objem: {volume})"
         print(msg)
         loguj_aktivitu_eth(msg)
         return True
-    except AttributeError:
-        # Kdyby náhodou knihovna byla starší verze, zkusíme zálohu
-        try:
-            client.sendOrder(symbol, side, volume)
-            msg = f"ÚSPĚCH (Fallback): FIX příkaz {side} {symbol} odeslán."
-            print(msg)
-            loguj_aktivitu_eth(msg)
-            return True
-        except Exception as e:
-            msg = f"CHYBA (Fallback selhal): {str(e)}"
-            print(msg)
-            loguj_aktivitu_eth(msg)
-            return False
+
     except Exception as e:
         msg = f"CHYBA: FIX příkaz {side} selhal. Důvod: {str(e)}"
         print(msg)
+        # Pokud to spadlo, vypíšeme ten seznam metod i do logu chyby, ať to vidíme
+        try:
+            tmp_client = Client(host, port, sender_id, target_id, password)
+            print(f"--- DIAGNOSTIKA CHYBY (Dostupné funkce): ---\n{dir(tmp_client)}\n--------------------------------")
+        except:
+            pass
         loguj_aktivitu_eth(msg)
         return False
 
