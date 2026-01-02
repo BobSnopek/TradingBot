@@ -48,21 +48,22 @@ def create_fix_msg(msg_type, tags_dict):
     return msg_final.encode('ascii')
 
 def proved_obchod_fix(symbol, side):
-    symbol_clean = symbol.replace("-", "").replace("/", "")
-    
-    # ÚDAJE Z SCREENSHOTU
+    # --- FINÁLNÍ ÚDAJE ---
     host = "live-uk-eqx-01.p.c-trader.com"
     port = 5212
     sender_comp_id = "live.ftmo.17032147"
     target_comp_id = "cServer"
-    
-    # NOVÉ HESLO
-    password = "CHeslo2026"
+    password = "CTrader2026"
     username = "17032147"
     
+    # !!! ZDE JE TA MAGICKÁ ÚPRAVA !!!
+    # Místo "BTCUSD" posíláme ID "324"
+    fix_symbol_id = "324"
+    
+    # Objem: 2 kontrakty (2 BTC)
     volume = 2
     
-    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
+    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} pro ID {fix_symbol_id} (BTC) ---")
     
     try:
         context = ssl.create_default_context()
@@ -73,7 +74,7 @@ def proved_obchod_fix(symbol, side):
         logon_tags = {
             49: sender_comp_id, 
             56: target_comp_id,
-            50: "TRADE",        # Z SCREENSHOTU
+            50: "TRADE",
             57: "TRADE",
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
@@ -87,12 +88,9 @@ def proved_obchod_fix(symbol, side):
         
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         if "35=A" in response and "58=" not in response:
-            print(f"DEBUG: Logon ÚSPĚŠNÝ! (Uživatel: {username})")
+            print(f"DEBUG: Logon ÚSPĚŠNÝ! Jdeme obchodovat.")
         else:
-            err = "Neznámá chyba"
-            if "58=" in response:
-                err = response.split("58=")[1].split("\x01")[0]
-            print(f"VAROVÁNÍ: Logon selhal: {err}")
+            print(f"VAROVÁNÍ: Logon selhal: {response}")
 
         # ORDER
         order_id = f"BOB_{int(time.time())}"
@@ -101,12 +99,12 @@ def proved_obchod_fix(symbol, side):
         order_tags = {
             49: sender_comp_id,
             56: target_comp_id,
-            50: "TRADE",        # I zde
+            50: "TRADE",
             57: "TRADE",
             34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             11: order_id,
-            55: symbol_clean,
+            55: fix_symbol_id,   # <--- ZDE POSÍLÁME "324"
             54: side_code,
             38: str(int(volume)),
             40: "1",
@@ -121,7 +119,7 @@ def proved_obchod_fix(symbol, side):
         
         if "35=8" in response_order:
             if "39=8" not in response_order:
-                msg = f"ÚSPĚCH: Obchod potvrzen! Detail: {response_order}"
+                msg = f"ÚSPĚCH: Obchod potvrzen! Server přijal ID {fix_symbol_id}."
                 print(msg)
                 loguj_aktivitu(msg)
                 return True
