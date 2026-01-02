@@ -20,13 +20,44 @@ def loguj_aktivitu_eth(zprava):
         f.write(f"[{timestamp}] {zprava}\n")
 
 def create_fix_msg(msg_type, tags_dict):
+    """
+    Sestaví FIX zprávu s přísným řazením hlavičky.
+    Server cTrader může být citlivý na pořadí tagů.
+    """
     s = "\x01"
-    body = ""
+    
+    # 1. HLAVIČKA (Musí být v tomto pořadí)
+    # Tagy: 35, 49, 56, 57, 34, 52
+    head_tags = ['35', '49', '56', '57', '34', '52']
+    head_str = ""
+    
+    # Dočasný slovník pro hlavičku
+    head_data = {
+        '35': msg_type,
+        '49': tags_dict.get(49),
+        '56': tags_dict.get(56),
+        '57': tags_dict.get(57),
+        '34': tags_dict.get(34),
+        '52': tags_dict.get(52)
+    }
+    
+    for tag in head_tags:
+        if head_data[tag]:
+            head_str += f"{tag}={head_data[tag]}{s}"
+            
+    # 2. TĚLO (Zbytek tagů)
+    body_str = ""
     for tag, val in tags_dict.items():
-        body += f"{tag}={val}{s}"
-    temp_head = f"35={msg_type}{s}{body}"
-    length = len(temp_head)
-    msg_str = f"8=FIX.4.4{s}9={length}{s}{temp_head}"
+        if str(tag) not in head_tags:
+            body_str += f"{tag}={val}{s}"
+            
+    # Složení: 8=... | 9=... | Hlavička | Tělo
+    full_content = head_str + body_str
+    length = len(full_content)
+    
+    msg_str = f"8=FIX.4.4{s}9={length}{s}{full_content}"
+    
+    # Checksum
     checksum = sum(msg_str.encode('ascii')) % 256
     msg_final = f"{msg_str}10={checksum:03d}{s}"
     return msg_final.encode('ascii')
@@ -34,13 +65,14 @@ def create_fix_msg(msg_type, tags_dict):
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
     
-    # --- HARDCODED ÚDAJE (FTMO) ---
     host = "live-uk-eqx-01.p.c-trader.com"
     port = 5212
-    sender_comp_id = "live.ftmo.17032147"  # Dlouhé ID
-    username_int = "17032147"            # Krátké ID (Username)
+    sender_comp_id = "live.ftmo.17032147"
+    username_int = "17032147"
     target_comp_id = "cServer"
-    password = "TraderHeslo@2026"        # Tvé heslo
+    
+    # !!! ZDE DEJ TO NOVÉ JEDNODUCHÉ HESLO !!!
+    password = "CHeslo2026" 
     
     volume = 15
     if "BTC" in symbol_clean: volume = 2
@@ -52,17 +84,16 @@ def proved_obchod_fix(symbol, side):
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
         
-        # LOGON (MsgType=A)
-        # Odstraněn tag 50 (QUOTE), který způsoboval RET_INVALID_DATA
+        # LOGON
         logon_tags = {
             49: sender_comp_id, 
             56: target_comp_id,
-            57: "TRADE",        # Nutné pro port 5212
+            57: "TRADE",
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
             108: "30",
-            553: username_int,  # Pouze číslo
+            553: username_int,
             554: password,
             141: "Y"
         }
@@ -73,13 +104,13 @@ def proved_obchod_fix(symbol, side):
         if "35=A" in response and "58=" not in response:
             print(f"DEBUG: Logon OK! (Uživatel: {username_int})")
         else:
-            err_text = "Neznámá chyba"
+            err = "Neznámá chyba"
             if "58=" in response:
-                err_text = response.split("58=")[1].split("\x01")[0]
-            print(f"VAROVÁNÍ: Logon selhal: {err_text}")
-            print(f"RAW Response: {response}")
+                err = response.split("58=")[1].split("\x01")[0]
+            print(f"VAROVÁNÍ: Logon selhal: {err}")
+            # Pokud logon selže, nemá smysl posílat obchod, ale pro debug to necháme
 
-        # ORDER (MsgType=D)
+        # ORDER
         order_id = f"BOB_{int(time.time())}"
         side_code = "1" if side.lower() == "buy" else "2"
         
