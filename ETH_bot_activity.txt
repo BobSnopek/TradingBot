@@ -20,3 +20,5 @@
 [2026-01-02 10:22:38] CHYBA: FIX příkaz BUY selhal. Důvod: 'Client' object has no attribute 'sendOrder'
 [2026-01-02 11:19:38] Analýza ceny 3042.37 | ADX: 51.32, RSI: 68.13 -> AKCE: BUY
 [2026-01-02 11:19:38] CHYBA: FIX příkaz BUY selhal. Důvod: 'Client' object has no attribute 'sendOrder'
+[2026-01-02 12:42:16] Analýza ceny 3051.17 | ADX: 52.94, RSI: 71.43 -> AKCE: BUY
+[2026-01-02 12:42:16] CHYBA: FIX příkaz BUY selhal. Důvod: 'Client' object has no attribute 'sendOrder'
