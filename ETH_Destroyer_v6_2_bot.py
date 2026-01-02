@@ -21,10 +21,10 @@ def loguj_aktivitu_eth(zprava):
 
 def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
-    # Hlavička (přísné pořadí)
-    head_tags = ['35', '49', '56', '57', '34', '52']
+    # Hlavička
+    head_tags = ['35', '49', '56', '50', '57', '34', '52']
     head_str = ""
-    head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 57, 34, 52]}
+    head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 50, 57, 34, 52]}
     head_data[35] = msg_type
     
     for tag_str in head_tags:
@@ -51,39 +51,30 @@ def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
     
     host = "live-uk-eqx-01.p.c-trader.com"
-    port = 5212
     
-    # --- POKUS O ZMĚNU ID ---
-    # Zkusíme poslat JEN ČÍSLO i jako SenderCompID
-    # Místo "live.ftmo.17032147" dáme jen "17032147"
-    sender_comp_id = "17032147" 
+    # --- ZMĚNA STRATEGIE: TESTUJEME DATA PORT 5211 ---
+    port = 5211 
+    
+    # Vracíme se k dlouhému ID (protože krátké bylo zamítnuto)
+    sender_comp_id = "live.ftmo.17032147"
     username_int = "17032147"
     target_comp_id = "cServer"
     
-    # HESLO
     password = "CHeslo2026" 
     
-    volume = 15
-    if "BTC" in symbol_clean: volume = 2
-    
-    print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
-    print(f"DEBUG: Zkouším ID '{sender_comp_id}' (bez live.ftmo...)")
+    print(f"--- TEST PŘIPOJENÍ NA DATOVÝ PORT (5211) ---")
     
     try:
-        # SSL Context bez přísné kontroly (pro jistotu)
         context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
         
-        # LOGON
+        # LOGON PRO PORT 5211 (Vyžaduje TargetSubID=QUOTE)
         logon_tags = {
             49: sender_comp_id, 
             56: target_comp_id,
-            57: "TRADE",
-            # 50: "TRADE", <--- SMAZÁNO (Na portu 5212 se často nepoužívá)
+            57: "QUOTE",        # <--- Pro port 5211 musí být QUOTE
+            50: "QUOTE",        # SenderSubID často taky QUOTE
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
@@ -92,61 +83,27 @@ def proved_obchod_fix(symbol, side):
             554: password,
             141: "Y"
         }
+        
+        print("Odesílám Logon na port 5211...")
         ssock.sendall(create_fix_msg("A", logon_tags))
         
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         
         if "35=A" in response and "58=" not in response:
-            print(f"DEBUG: Logon OK! (ID: {sender_comp_id})")
+            msg = f"!!! SLÁVA !!! LOGON NA 5211 ÚSPĚŠNÝ! HESLO JE SPRÁVNĚ."
+            print(msg)
+            print(f"Server odpověděl: {response}")
+            loguj_aktivitu_eth(msg)
+            # Pokud toto projde, víme, že heslo platí. Obchodovat tu sice nejde, ale potvrdíme údaje.
+            return True
         else:
             err = "Neznámá chyba"
             if "58=" in response:
                 err = response.split("58=")[1].split("\x01")[0]
-            print(f"VAROVÁNÍ: Logon selhal: {err}")
-
-        # ORDER
-        order_id = f"BOB_{int(time.time())}"
-        side_code = "1" if side.lower() == "buy" else "2"
-        
-        order_tags = {
-            49: sender_comp_id,
-            56: target_comp_id,
-            57: "TRADE",
-            34: 2,
-            52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
-            11: order_id,
-            55: symbol_clean,
-            54: side_code,
-            38: str(int(volume)),
-            40: "1",
-            59: "0",
-            60: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
-        }
-        
-        ssock.sendall(create_fix_msg("D", order_tags))
-        time.sleep(2)
-        response_order = ssock.recv(4096).decode('ascii', errors='ignore')
-        ssock.close()
-        
-        if "35=8" in response_order:
-            if "39=8" not in response_order:
-                msg = f"ÚSPĚCH: Obchod potvrzen! Detail: {response_order}"
-                print(msg)
-                loguj_aktivitu_eth(msg)
-                return True
-            else:
-                err = "Zamítnuto"
-                if "58=" in response_order:
-                    err = response_order.split("58=")[1].split("\x01")[0]
-                msg = f"ZAMÍTNUTO: {err}"
-                print(msg)
-                loguj_aktivitu_eth(msg)
-                return False
-        else:
-            msg = f"VÝSLEDEK NEJASNÝ: {response_order}"
+            msg = f"LOGON SELHAL I NA 5211: {err}"
             print(msg)
-            loguj_aktivitu_eth(msg)
-            return True
+            print(f"RAW: {response}")
+            return False
 
     except Exception as e:
         print(f"CHYBA: {e}")
