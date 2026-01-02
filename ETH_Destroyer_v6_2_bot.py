@@ -21,19 +21,14 @@ def loguj_aktivitu_eth(zprava):
 
 # --- GENERÁTOR FIX ZPRÁV ---
 def create_fix_msg(msg_type, tags_dict):
-    """Sestaví validní FIX zprávu včetně hlavičky a checksumu."""
     s = "\x01"
     body = ""
     for tag, val in tags_dict.items():
         body += f"{tag}={val}{s}"
     
-    # Hlavička (35=MsgType)
     temp_head = f"35={msg_type}{s}{body}"
     length = len(temp_head)
-    
     msg_str = f"8=FIX.4.4{s}9={length}{s}{temp_head}"
-    
-    # Checksum
     checksum = sum(msg_str.encode('ascii')) % 256
     msg_final = f"{msg_str}10={checksum:03d}{s}"
     return msg_final.encode('ascii')
@@ -41,45 +36,42 @@ def create_fix_msg(msg_type, tags_dict):
 # --- SYNCHRONNÍ ODESLÁNÍ PŘES SSL ---
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
-    host = os.getenv('FIX_HOST', 'h65.p.ctrader.com')
+    host = os.getenv('FIX_HOST', 'live-uk-eqx-01.p.c-trader.com')
     port = int(os.getenv('FIX_PORT', 5212))
-    sender_id = os.getenv('FIX_SENDER_ID')
-    target_id = os.getenv('FIX_TARGET_ID')
+    
+    # ZDE JE KLÍČ: Načteme celé ID
+    sender_id_full = os.getenv('FIX_SENDER_ID') # "live.ftmo.17032147"
+    target_id = os.getenv('FIX_TARGET_ID')      # "cServer"
     password = os.getenv('FIX_PASSWORD')
     
-    # --- OPRAVA USERNAME (Musí být INTEGER) ---
-    # Z sender_id vytáhneme jen číslice. 
-    # Např. z "profit.123456" udělá "123456".
+    # A vyrobíme z něj číselnou verzi pro Username
     try:
-        username_int = "".join(filter(str.isdigit, sender_id))
+        username_int = "".join(filter(str.isdigit, sender_id_full)) # "17032147"
     except:
-        username_int = "0" # Fallback
-        
-    # Nastavení objemu
+        username_int = "0"
+
     volume = 15
     if "BTC" in symbol_clean: volume = 2
     
     print(f"--- PŘÍMÝ FIX SOCKET: Odesílám {side} {symbol_clean} ---")
+    print(f"DEBUG: SenderCompID='{sender_id_full}', Username='{username_int}'")
     
     try:
-        # 1. PŘIPOJENÍ
         context = ssl.create_default_context()
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
-        print(f"DEBUG: Připojeno k {host}:{port}")
-
+        
         # 2. LOGON (MsgType=A)
-        # Tag 553 (Username) nyní používá pouze vyčištěné číslo
         logon_tags = {
-            49: sender_id,  # SenderCompID (Zůstává text)
-            56: target_id,  # TargetCompID
-            57: "TRADE",    # TargetSubID
-            50: "QUOTE",    # SenderSubID
+            49: sender_id_full, # Tag 49: CELÉ ID (live.ftmo...)
+            56: target_id,
+            57: "TRADE",        # TargetSubID: Musí být TRADE
+            50: "QUOTE",        # SenderSubID: Často vyžadováno jako párové k 57
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
             108: "30",
-            553: username_int, # <--- ZDE BYLA CHYBA (nyní posíláme jen číslo)
+            553: username_int,  # Tag 553: JEN ČÍSLO
             554: password,
             141: "Y"
         }
@@ -89,25 +81,23 @@ def proved_obchod_fix(symbol, side):
         # Čekání na Logon
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         
-        # Zkontrolujeme, jestli Logon prošel (35=A a žádná chyba)
         if "35=A" in response and "58=" not in response:
-            print(f"DEBUG: Logon úspěšný! (Username: {username_int})")
+            print("DEBUG: Logon úspěšný! Jdeme obchodovat.")
         else:
-            # Pokud je tam chyba, vypíšeme ji
-            err_text = ""
+            err_text = "Neznámá chyba"
             if "58=" in response:
                 err_text = response.split("58=")[1].split("\x01")[0]
-            print(f"VAROVÁNÍ: Logon odpověď podezřelá: {err_text}")
-            print(f"RAW Odpověď: {response}")
+            print(f"VAROVÁNÍ: Logon problém: {err_text}")
+            print(f"RAW: {response}")
 
         # 3. NEW ORDER SINGLE (MsgType=D)
         order_id = f"BOB_{int(time.time())}"
         side_code = "1" if side.lower() == "buy" else "2"
         
         order_tags = {
-            49: sender_id,
+            49: sender_id_full, # I zde celé ID
             56: target_id,
-            57: "TRADE",
+            57: "TRADE",        # Důležité pro routing
             50: "QUOTE",
             34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
@@ -121,13 +111,11 @@ def proved_obchod_fix(symbol, side):
         }
         
         order_msg = create_fix_msg("D", order_tags)
-        print(f"DEBUG: Odesílám příkaz...")
         ssock.sendall(order_msg)
         
         # 4. ČEKÁNÍ NA POTVRZENÍ
         time.sleep(2)
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
-        
         ssock.close()
         
         if "35=8" in response_order: 
@@ -137,14 +125,13 @@ def proved_obchod_fix(symbol, side):
                     err_text = response_order.split("58=")[1].split("\x01")[0]
                 msg = f"ZAMÍTNUTO: Server příkaz odmítl. Důvod: {err_text}"
             else:
-                msg = f"ÚSPĚCH: Obchod potvrzen serverem! (Execution Report přijat)"
-            
+                msg = f"ÚSPĚCH: Obchod potvrzen! (Execution Report přijat)"
             print(msg)
-            print(f"DETAIL ODPOVĚDI: {response_order}")
+            print(f"DETAIL: {response_order}")
             loguj_aktivitu_eth(msg)
             return True
         else:
-            msg = f"NEJISTÝ VÝSLEDEK: Data odeslána, odpověď: {response_order}"
+            msg = f"NEJISTÝ VÝSLEDEK: Odpověď serveru: {response_order}"
             print(msg)
             loguj_aktivitu_eth(msg)
             return True
