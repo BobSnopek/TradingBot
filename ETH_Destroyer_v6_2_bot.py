@@ -6,19 +6,18 @@ import os
 import datetime
 from ctrader_fix import *
 
-# --- KONFIGURACE (Vyladěno podle Colab simulace) ---
-TRAIL_PCT = 0.012   # 1.2% Trailing Stop-Loss (širší kvůli volatilitě ETH)
-MAX_HOLD = 12       # Maximální doba držení 12 hodin
-RISK_PCT = 0.20     # 20% risk pro simulaci
-LEVERAGE = 3        # Páka 3x (bezpečnější pro ETH)
+# --- KONFIGURACE ---
+TRAIL_PCT = 0.012   # 1.2% Trailing Stop-Loss
+MAX_HOLD = 12       # Max doba držení 12h
+RISK_PCT = 0.20     # 20% risk
+LEVERAGE = 3        # Páka 3x
 
-# Funkce pro logování
 def loguj_aktivitu_eth(zprava):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open('ETH_bot_activity.txt', 'a', encoding='utf-8') as f:
         f.write(f"[{timestamp}] {zprava}\n")
 
-# Načtení FIX údajů z GitHub Secrets
+# --- OPRAVENÁ FUNKCE PRO FIX API ---
 def proved_obchod_fix(symbol, side):
     symbol = symbol.replace("-", "")
     host = os.getenv('FIX_HOST')
@@ -27,18 +26,32 @@ def proved_obchod_fix(symbol, side):
     target_id = os.getenv('FIX_TARGET_ID')
     password = os.getenv('FIX_PASSWORD')
     
-    # Objem lotů: 15.0 pro ETHUSD na 200k účtu
     volume = 15.0 if symbol == "ETHUSD" else 2.0 
 
     print(f"--- FIX API: Odesílám {side} {symbol} ({volume} lotů) ---")
     
     try:
         client = Client(host, port, sender_id, target_id, password)
-        client.sendOrder(symbol, side, volume)
+        # OPRAVA: Použití správné metody send_new_order_single
+        client.send_new_order_single(symbol, side, volume)
+        
         msg = f"ÚSPĚCH: FIX příkaz {side} {symbol} odeslán (objem: {volume})"
         print(msg)
         loguj_aktivitu_eth(msg)
         return True
+    except AttributeError:
+        # Kdyby náhodou knihovna byla starší verze, zkusíme zálohu
+        try:
+            client.sendOrder(symbol, side, volume)
+            msg = f"ÚSPĚCH (Fallback): FIX příkaz {side} {symbol} odeslán."
+            print(msg)
+            loguj_aktivitu_eth(msg)
+            return True
+        except Exception as e:
+            msg = f"CHYBA (Fallback selhal): {str(e)}"
+            print(msg)
+            loguj_aktivitu_eth(msg)
+            return False
     except Exception as e:
         msg = f"CHYBA: FIX příkaz {side} selhal. Důvod: {str(e)}"
         print(msg)
@@ -79,11 +92,9 @@ def run_trailing_sim_eth(data):
         
         for i in range(1, len(data) - MAX_HOLD):
             sig = data['Signal'].iloc[i]
-            # Simulujeme obchod jen při změně signálu
             if sig != 0 and sig != data['Signal'].iloc[i-1]:
                 entry = data['Close'].iloc[i]
                 res = 0
-                
                 if sig == 1: # LONG
                     peak = entry
                     for h in range(1, MAX_HOLD + 1):
