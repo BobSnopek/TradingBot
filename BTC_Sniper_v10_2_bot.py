@@ -22,12 +22,27 @@ def loguj_aktivitu(zprava):
 
 def create_fix_msg(msg_type, tags_dict):
     s = "\x01"
-    body = ""
+    head_tags = ['35', '49', '56', '50', '57', '34', '52']
+    head_str = ""
+    head_data = {k: tags_dict.get(k) for k in [35, 49, 56, 50, 57, 34, 52]}
+    head_data[35] = msg_type
+    
+    for tag_str in head_tags:
+        tag = int(tag_str) if tag_str != '35' else 35
+        val = tags_dict.get(tag)
+        if val:
+            head_str += f"{tag}={val}{s}"
+        elif tag == 35:
+            head_str += f"35={msg_type}{s}"
+
+    body_str = ""
     for tag, val in tags_dict.items():
-        body += f"{tag}={val}{s}"
-    temp_head = f"35={msg_type}{s}{body}"
-    length = len(temp_head)
-    msg_str = f"8=FIX.4.4{s}9={length}{s}{temp_head}"
+        if str(tag) not in head_tags and tag != 35:
+            body_str += f"{tag}={val}{s}"
+            
+    full_content = head_str + body_str
+    length = len(full_content)
+    msg_str = f"8=FIX.4.4{s}9={length}{s}{full_content}"
     checksum = sum(msg_str.encode('ascii')) % 256
     msg_final = f"{msg_str}10={checksum:03d}{s}"
     return msg_final.encode('ascii')
@@ -35,13 +50,15 @@ def create_fix_msg(msg_type, tags_dict):
 def proved_obchod_fix(symbol, side):
     symbol_clean = symbol.replace("-", "").replace("/", "")
     
-    # --- HARDCODED ÚDAJE (FTMO) ---
+    # ÚDAJE Z SCREENSHOTU
     host = "live-uk-eqx-01.p.c-trader.com"
     port = 5212
     sender_comp_id = "live.ftmo.17032147"
-    username_int = "17032147"
     target_comp_id = "cServer"
-    password = "TraderHeslo@2026"
+    
+    # NOVÉ HESLO
+    password = "CHeslo2026"
+    username = "17032147"
     
     volume = 2
     
@@ -52,17 +69,17 @@ def proved_obchod_fix(symbol, side):
         sock = socket.create_connection((host, port))
         ssock = context.wrap_socket(sock, server_hostname=host)
         
-        # LOGON (MsgType=A)
-        # Odstraněn tag 50 (QUOTE)
+        # LOGON
         logon_tags = {
-            49: sender_comp_id,
+            49: sender_comp_id, 
             56: target_comp_id,
+            50: "TRADE",        # Z SCREENSHOTU
             57: "TRADE",
             34: 1,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
             98: "0",
             108: "30",
-            553: username_int,
+            553: username,
             554: password,
             141: "Y"
         }
@@ -70,20 +87,21 @@ def proved_obchod_fix(symbol, side):
         
         response = ssock.recv(4096).decode('ascii', errors='ignore')
         if "35=A" in response and "58=" not in response:
-            print(f"DEBUG: Logon OK! (Uživatel: {username_int})")
+            print(f"DEBUG: Logon ÚSPĚŠNÝ! (Uživatel: {username})")
         else:
-            err_text = "Neznámá chyba"
+            err = "Neznámá chyba"
             if "58=" in response:
-                err_text = response.split("58=")[1].split("\x01")[0]
-            print(f"VAROVÁNÍ: Logon selhal: {err_text}")
+                err = response.split("58=")[1].split("\x01")[0]
+            print(f"VAROVÁNÍ: Logon selhal: {err}")
 
-        # ORDER (MsgType=D)
+        # ORDER
         order_id = f"BOB_{int(time.time())}"
         side_code = "1" if side.lower() == "buy" else "2"
         
         order_tags = {
             49: sender_comp_id,
             56: target_comp_id,
+            50: "TRADE",        # I zde
             57: "TRADE",
             34: 2,
             52: datetime.datetime.utcnow().strftime("%Y%m%d-%H:%M:%S.%f")[:-3],
