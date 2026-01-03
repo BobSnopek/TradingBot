@@ -15,9 +15,9 @@ TP_PCT = 0.030   # Take Profit 3.0%
 RISK_PCT = 0.25
 LEVERAGE = 5     # Páka pro BTC
 
-# --- UPDATE: BEZPEČNÝ OBJEM A PAMĚŤ ---
-VOLUME_TO_TRADE = 1  # Sníženo pro testování (bezpečnější než 2)
-STATE_FILE = 'BTC_last_signal.txt'
+# --- KONFIGURACE OBCHODOVÁNÍ ---
+VOLUME_TO_TRADE = 1          # Bezpečný objem pro testování
+STATE_FILE = 'BTC_last_signal.txt' # Soubor pro paměť bota
 
 def loguj_aktivitu(zprava):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -103,8 +103,7 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
     password = "CTrader2026"
     username = "17032147"
     
-    # ID instrumentu pro BTC = 324 (Podle tvého infa)
-    fix_symbol_id = "324"
+    fix_symbol_id = "324" # BTC
     
     print(f"--- FIX SOCKET: Odesílám {side} pro ID {fix_symbol_id} (Vol: {VOLUME_TO_TRADE}) ---")
     
@@ -141,14 +140,11 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
         }
         
         ssock.sendall(create_fix_msg("D", order_tags))
-        time.sleep(1.0) # Bezpečná pauza
+        time.sleep(1.0)
         response_order = ssock.recv(4096).decode('ascii', errors='ignore')
         
         if "35=8" in response_order and "39=8" not in response_order:
-            # Zkusíme zjistit cenu ze serveru
             filled_price = parse_price_from_response(response_order)
-            
-            # ZÁLOŽNÍ PLÁN
             final_price = filled_price if filled_price else current_market_price
             
             source_msg = "(ze serveru)" if filled_price else "(z grafu - záloha)"
@@ -217,33 +213,45 @@ def proved_obchod_a_zajisti(symbol, side, current_market_price):
         print(f"CHYBA SOCKETU: {e}")
         return False
 
-# 1. DATA
+# 1. DATA (LIVE ANALÝZA)
 symbol = 'BTC-USD'
+# Stahujeme 720 dní pro výpočet indikátorů
 df_raw = yf.download(symbol, period='720d', interval='1h', auto_adjust=True)
 if isinstance(df_raw.columns, pd.MultiIndex):
     df_raw.columns = df_raw.columns.get_level_values(0)
 df = df_raw.copy()
 
-# Výpočet indikátorů
+# Indikátory
 df['RSI'] = ta.rsi(df['Close'], length=7)
 macd = ta.macd(df['Close'], fast=8, slow=21, signal=5)
-# Oprava: bezpečný výběr MACD histogramu
 macd_h_col = [c for c in macd.columns if 'h' in c.lower()][0]
 df['MACD_H'] = macd[macd_h_col]
 
-# 2. TRÉNINK (AI Model)
-train_data = yf.download(symbol, start="2024-10-01", end="2025-01-01", interval='1h', auto_adjust=True)
+# 2. TRÉNINK (AI Model - KLOUZAVÉ OKNO 9 MĚSÍCŮ)
+# Dynamický výpočet trénovacího období
+end_date = datetime.datetime.now()
+start_date = end_date - datetime.timedelta(days=270) # 9 měsíců zpětně
+
+print(f"Trénuji model na datech od: {start_date.strftime('%Y-%m-%d')} do: {end_date.strftime('%Y-%m-%d')}")
+
+train_data = yf.download(symbol, start=start_date, end=end_date, interval='1h', auto_adjust=True)
 if isinstance(train_data.columns, pd.MultiIndex):
     train_data.columns = train_data.columns.get_level_values(0)
 td = train_data.copy()
+
 td['RSI'] = ta.rsi(td['Close'], length=7)
 td_macd = ta.macd(td['Close'], fast=8, slow=21, signal=5)
 td_macd_h_col = [c for c in td_macd.columns if 'h' in c.lower()][0]
 td['MACD_H'] = td_macd[td_macd_h_col]
+
+# Cíle (Targets)
 td['Target_L'] = np.where(td['Close'].shift(-2) > td['Close'] * 1.003, 1, 0)
 td['Target_S'] = np.where(td['Close'].shift(-2) < td['Close'] * 0.997, 1, 0)
 td = td.dropna()
+
 features = ['RSI', 'MACD_H']
+
+# Trénink
 model_l = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42).fit(td[features], td['Target_L'])
 model_s = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42).fit(td[features], td['Target_S'])
 
@@ -254,7 +262,7 @@ df['Signal'] = 0
 df.loc[df['Prob_L'] > 0.51, 'Signal'] = 1
 df.loc[df['Prob_S'] > 0.51, 'Signal'] = -1
 
-# 4. SIMULACE (Jen pro info do souboru)
+# 4. SIMULACE (Jen pro zápis do souboru)
 def run_trailing_sim(data):
     balance = 1000.0
     MAX_HOLD = 8
@@ -294,7 +302,7 @@ def run_trailing_sim(data):
     return balance
 final_bal = run_trailing_sim(df)
 
-# 5. EXECUTION (S KONTROLOU DUPLICIT)
+# 5. EXECUTION
 posledni_radek = df.iloc[-1]
 signal_dnes = int(posledni_radek['Signal'])
 aktualni_cena = posledni_radek['Close']
