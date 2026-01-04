@@ -104,3 +104,4 @@
 [2026-01-04 21:19:24] ÚSPĚCH: Otevřeno za 3146.73 (z grafu - záloha)
 [2026-01-04 21:19:26] Ochrana odeslána: SL 3193.93, TP 3052.33
 [2026-01-04 22:20:51] NEČINNOST
+[2026-01-04 23:20:49] NEČINNOST
