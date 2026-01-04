@@ -80,3 +80,6 @@
 [2026-01-03 22:20:05] IGNOROVÁNO: Signál -1 se nezměnil.
 [2026-01-03 23:19:58] IGNOROVÁNO: Signál -1 se nezměnil.
 [2026-01-04 01:55:28] NEČINNOST
+[2026-01-04 03:52:06] NOVÝ SIGNÁL: BUY (Změna z 0)
+[2026-01-04 03:52:07] ÚSPĚCH: Otevřeno za 3146.92 (z grafu - záloha)
+[2026-01-04 03:52:09] Ochrana odeslána: SL 3099.71, TP 3241.32
