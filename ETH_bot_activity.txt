@@ -130,3 +130,4 @@
 [2026-01-05 18:34:25] NOVÝ SIGNÁL: SELL (Změna z 0)
 [2026-01-05 18:34:27] ÚSPĚCH: Otevřeno za 3199.66 (z grafu - záloha)
 [2026-01-05 18:34:29] Ochrana odeslána: SL 3247.66, TP 3103.67
+[2026-01-05 19:21:01] IGNOROVÁNO: Signál -1 se nezměnil.
