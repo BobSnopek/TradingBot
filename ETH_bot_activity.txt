@@ -105,3 +105,6 @@
 [2026-01-04 21:19:26] Ochrana odeslána: SL 3193.93, TP 3052.33
 [2026-01-04 22:20:51] NEČINNOST
 [2026-01-04 23:20:49] NEČINNOST
+[2026-01-05 01:55:15] NOVÝ SIGNÁL: SELL (Změna z 0)
+[2026-01-05 01:55:16] ÚSPĚCH: Otevřeno za 3198.69 (z grafu - záloha)
+[2026-01-05 01:55:18] Ochrana odeslána: SL 3246.67, TP 3102.73
