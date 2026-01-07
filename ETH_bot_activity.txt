@@ -285,3 +285,9 @@
 [2026-01-07 13:40:10] Data: Cena=3215.30, ADX=20.5, RSI=44.5 -> Signál: 0
 [2026-01-07 13:40:10] Aktuálně držím: NONE
 [2026-01-07 13:40:10] ⚪ Žádný signál.
+[2026-01-07 14:24:52] --- START ANALÝZY ---
+[2026-01-07 14:24:53] Data: Cena=3189.89, ADX=21.3, RSI=38.6 -> Signál: 1
+[2026-01-07 14:24:53] Aktuálně držím: NONE
+[2026-01-07 14:24:53] 🟢 NOVÝ: Otevírám LONG
+[2026-01-07 14:24:53] FIX: BUY 1 (Entry: True)
+[2026-01-07 14:24:54] ❌ CHYBA: TRADING_NOT_ALLOWED:Trading is not allowed for trader id 33182
