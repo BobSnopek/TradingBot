@@ -275,3 +275,9 @@
 [2026-01-07 11:21:01] 🔴 NOVÝ: Otevírám SHORT
 [2026-01-07 11:21:01] FIX: SELL 1 (Entry: True)
 [2026-01-07 11:21:03] ❌ CHYBA: TRADING_NOT_ALLOWED:Trading is not allowed for trader id 33182
+[2026-01-07 12:47:14] --- START ANALÝZY ---
+[2026-01-07 12:47:15] Data: Cena=3211.53, ADX=20.2, RSI=43.4 -> Signál: -1
+[2026-01-07 12:47:15] Aktuálně držím: NONE
+[2026-01-07 12:47:15] 🔴 NOVÝ: Otevírám SHORT
+[2026-01-07 12:47:15] FIX: SELL 1 (Entry: True)
+[2026-01-07 12:47:16] ❌ CHYBA: TRADING_NOT_ALLOWED:Trading is not allowed for trader id 33182
