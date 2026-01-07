@@ -321,3 +321,7 @@
 [2026-01-07 19:20:53] 🟢 NOVÝ: Otevírám LONG
 [2026-01-07 19:20:53] FIX: BUY 1 (Entry: True)
 [2026-01-07 19:20:54] ❌ CHYBA: TRADING_NOT_ALLOWED:Trading is not allowed for trader id 33182
+[2026-01-07 20:26:18] --- START ANALÝZY ---
+[2026-01-07 20:26:18] Data: Cena=3131.38, ADX=31.4, RSI=29.3 -> Signál: 0
+[2026-01-07 20:26:18] Aktuálně držím: NONE
+[2026-01-07 20:26:18] ⚪ Žádný signál.
