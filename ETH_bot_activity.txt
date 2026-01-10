@@ -559,3 +559,7 @@
 [2026-01-10 11:17:51] 🔴 NOVÝ: Otevírám SHORT
 [2026-01-10 11:17:51] FIX: SELL 1 (Entry: True)
 [2026-01-10 11:17:53] ❌ CHYBA: TRADING_NOT_ALLOWED:Trading is not allowed for trader id 33182
+[2026-01-10 12:40:57] --- START ANALÝZY ---
+[2026-01-10 12:40:57] Data: Cena=3092.94, ADX=14.4, RSI=50.8 -> Signál: 0
+[2026-01-10 12:40:57] Aktuálně držím: NONE
+[2026-01-10 12:40:57] ⚪ Žádný signál.
