@@ -837,3 +837,7 @@
 [2026-01-13 05:26:21] 🔴 NOVÝ: Otevírám SHORT
 [2026-01-13 05:26:21] FIX: SELL 1 (Entry: True)
 [2026-01-13 05:26:22] Logon selhal: 8=FIX.4.49=11035=534=149=cServer50=TRADE52=20260113-05:26:22.02256=live.ftmo.1703214757=TRADE58=RET_ACCOUNT_DISABLED10=242
+[2026-01-13 06:35:29] --- START ANALÝZY ---
+[2026-01-13 06:35:29] Data: Cena=3128.23, ADX=21.9, RSI=56.9 -> Signál: 0
+[2026-01-13 06:35:29] Aktuálně držím: NONE
+[2026-01-13 06:35:29] ⚪ Žádný signál.
